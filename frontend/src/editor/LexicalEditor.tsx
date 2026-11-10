@@ -46,7 +46,7 @@ import { ListItemNode, ListNode, INSERT_UNORDERED_LIST_COMMAND, INSERT_ORDERED_L
 import { CodeHighlightNode, CodeNode, registerCodeHighlighting, $isCodeNode, $createCodeNode } from '@lexical/code';
 import { AutoLinkNode, LinkNode } from '@lexical/link';
 import { SlashCommandPlugin } from './plugins/SlashCommandPlugin';
-import { MathPlugin, MathNode, MATH_TRANSFORMER } from './plugins/MathPlugin';
+import { MathPlugin, MathNode, MATH_TRANSFORMER, normalizeMarkdownMath } from './plugins/MathPlugin';
 import 'katex/dist/katex.min.css';
 import { CustomSelect } from '../components/ui/CustomUI';
 import {
@@ -60,6 +60,7 @@ import {
   Quote,
   Save,
   CheckCircle,
+  Loader2,
 } from 'lucide-react';
 
 const CODE_LANGUAGES = [
@@ -72,6 +73,10 @@ const CODE_LANGUAGES = [
   { label: 'JSON', value: 'json' },
   { label: 'HTML', value: 'markup' },
   { label: 'CSS', value: 'css' },
+  { label: 'SQL', value: 'sql' },
+  { label: 'C', value: 'c' },
+  { label: 'C++', value: 'cpp' },
+  { label: 'Markdown', value: 'markdown' },
 ];
 
 const EDITOR_TRANSFORMERS = [...TRANSFORMERS, MATH_TRANSFORMER];
@@ -132,7 +137,7 @@ const editorTheme = {
 
 interface EditorProps {
   initialContent: string;
-  onSave: (markdown: string) => void;
+  onSave: (markdown: string) => Promise<void> | void;
   chapterTitle: string;
 }
 
@@ -143,6 +148,7 @@ function EditorBridge({
 }: EditorProps) {
   const [editor] = useLexicalComposerContext();
   const [savedStatus, setSavedStatus] = useState<string>('Ready');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [selectedLang, setSelectedLang] = useState<string>('javascript');
   const autosaveTimer = useRef<number | null>(null);
   const statusTimer = useRef<number | null>(null);
@@ -154,40 +160,54 @@ function EditorBridge({
     return registerCodeHighlighting(editor);
   }, [editor]);
 
-  // Hydrate the editor from Markdown once per chapter.
+  // Hydrate the editor from normalized Markdown once per chapter.
   useEffect(() => {
     editor.update(() => {
-      $convertFromMarkdownString(initialContent, EDITOR_TRANSFORMERS);
+      const normalized = normalizeMarkdownMath(initialContent);
+      $convertFromMarkdownString(normalized, EDITOR_TRANSFORMERS);
     });
   }, [initialContent, editor]);
 
   const flashStatus = useCallback((status: string) => {
     setSavedStatus(status);
     if (statusTimer.current) window.clearTimeout(statusTimer.current);
-    statusTimer.current = window.setTimeout(() => setSavedStatus('Ready'), 1800);
+    statusTimer.current = window.setTimeout(() => setSavedStatus('Ready'), 2000);
   }, []);
 
-  const handleManualSave = useCallback(() => {
-    editor.getEditorState().read(() => {
-      const markdown = $convertToMarkdownString(EDITOR_TRANSFORMERS);
-      onSaveRef.current(markdown);
+  const handleManualSave = useCallback(async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const markdown = editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
+      await Promise.resolve(onSaveRef.current(markdown));
       flashStatus('Saved!');
-    });
-  }, [editor, flashStatus]);
+    } catch (err) {
+      console.error('Failed to save:', err);
+      flashStatus('Error saving');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [editor, flashStatus, isSaving]);
 
-  // Debounced autosave.
+  // Debounced real-time autosave
   useEffect(() => {
     const removeListener = editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
-      autosaveTimer.current = window.setTimeout(() => {
-        editorState.read(() => {
-          const markdown = $convertToMarkdownString(EDITOR_TRANSFORMERS);
-          onSaveRef.current(markdown);
-        });
-        flashStatus('Autosaved');
-      }, 500);
+
+      setSavedStatus('Saving...');
+      autosaveTimer.current = window.setTimeout(async () => {
+        try {
+          const markdown = editorState.read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
+          await Promise.resolve(onSaveRef.current(markdown));
+          flashStatus('Saved in real-time');
+        } catch (err) {
+          console.error('Autosave failed:', err);
+          flashStatus('Autosave error');
+        }
+      }, 350);
     });
+
     return () => {
       removeListener();
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
@@ -311,28 +331,42 @@ function EditorBridge({
           <CustomSelect value={selectedLang} options={CODE_LANGUAGES} onChange={applyCodeLanguage} />
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 text-xs text-slate-400">
-            {savedStatus === 'Saved!' || savedStatus === 'Autosaved' ? (
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-xs text-slate-400">
+            {savedStatus.includes('Saved') ? (
               <CheckCircle size={13} className="text-emerald-400" />
+            ) : savedStatus.includes('Saving') ? (
+              <Loader2 size={13} className="animate-spin text-indigo-400" />
             ) : null}
             {savedStatus}
           </span>
           <button
             onClick={handleManualSave}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600/80 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-600"
+            disabled={isSaving}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-75"
           >
-            <Save size={13} /> Save
+            {isSaving ? (
+              <>
+                <Loader2 size={13} className="animate-spin text-white" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Save size={13} />
+                <span>Save</span>
+              </>
+            )}
           </button>
         </div>
       </div>
 
-      <div className="relative mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-8 py-6 pb-[60vh]">
+      {/* Editor Content Area */}
+      <div className="relative w-full flex-1 overflow-y-auto px-6 py-6 pb-[60vh]">
         <RichTextPlugin
-          contentEditable={<ContentEditable className="editor-input min-h-[70vh] pb-[40vh] outline-none" />}
+          contentEditable={<ContentEditable className="editor-input min-h-[70vh] w-full pb-[40vh] outline-none" />}
           placeholder={
             <div className="pointer-events-none absolute text-sm text-slate-600">
-              Type '/' for commands or start typing notes...
+              Type '/' for commands, or $latex$ for formulas...
             </div>
           }
           ErrorBoundary={LexicalErrorBoundary}

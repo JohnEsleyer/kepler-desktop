@@ -132,8 +132,6 @@ function AppContent() {
   const handleSelectTab = async (tabId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (tab && scanResult && tab.workspacePath && tab.workspacePath !== scanResult.vaultPath) {
-      // Tabs are universal: selecting a book from another workspace brings
-      // that workspace back into focus in the sidebar.
       try {
         const res = await VaultAPI.switchWorkspace(tab.workspacePath);
         setScanResult(res);
@@ -152,6 +150,11 @@ function AppContent() {
     if (activeTabId === tabId) {
       setActiveTabId(nextTabs.length > 0 ? nextTabs[nextTabs.length - 1].id : null);
     }
+  };
+
+  const handleClearAllTabs = () => {
+    setTabs([]);
+    setActiveTabId(null);
   };
 
   const handleSaveBookSettings = async (data: {
@@ -229,6 +232,7 @@ function AppContent() {
         activeTabId={activeTabId}
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
+        onCloseAllTabs={handleClearAllTabs}
         onHomeClick={() => setActiveTabId(null)}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         isSidebarOpen={isSidebarOpen}

@@ -90,8 +90,6 @@ func (s *VaultService) loadWorkspacesList() {
 		return
 	}
 
-	// De-duplicate and discard empty entries so a hand-edited config never
-	// produces phantom workspaces in the sidebar.
 	seen := make(map[string]bool)
 	for _, ws := range raw {
 		clean := filepath.Clean(strings.TrimSpace(ws))
@@ -109,8 +107,6 @@ func (s *VaultService) persistWorkspacesList() {
 	_ = os.WriteFile(wsFile, data, 0644)
 }
 
-// normalizeWorkspacePath expands ~ and converts a terminal-supplied path into
-// an absolute, cleaned directory path.
 func normalizeWorkspacePath(targetPath string) (string, error) {
 	targetPath = strings.TrimSpace(targetPath)
 	targetPath = strings.Trim(targetPath, `"'`)
@@ -136,7 +132,6 @@ func normalizeWorkspacePath(targetPath string) (string, error) {
 	return filepath.Clean(abs), nil
 }
 
-// OpenTerminalPath is invoked when the CLI provides `esper <path>`.
 func (s *VaultService) OpenTerminalPath(targetPath string) string {
 	abs, err := normalizeWorkspacePath(targetPath)
 	if err != nil {
@@ -213,7 +208,6 @@ func (s *VaultService) SwitchWorkspace(dir string) (*VaultScanResult, error) {
 
 	s.mu.Lock()
 	s.activePath = clean
-	// Opening an already known workspace must not duplicate the entry.
 	found := false
 	for _, ws := range s.savedWorkspaces {
 		if filepath.Clean(ws) == clean {
@@ -310,8 +304,6 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			_ = os.WriteFile(metaFile, updated, 0644)
 		}
 
-		// Resolve a relative cover image into a data URI so the webview can
-		// render it without needing a custom asset protocol.
 		if meta.CoverImage != nil && *meta.CoverImage != "" && !strings.HasPrefix(*meta.CoverImage, "data:") {
 			coverFilePath := filepath.Join(bookDir, *meta.CoverImage)
 			if bData, readErr := os.ReadFile(coverFilePath); readErr == nil {
@@ -327,7 +319,6 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 				dataUri := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(bData))
 				meta.CoverImage = &dataUri
 			} else {
-				// Avoid sending a broken relative path to the frontend.
 				meta.CoverImage = nil
 			}
 		}
@@ -408,9 +399,9 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 		})
 	}
 
-	// Sort books by most recently updated so edited notebooks float to the top.
+	// Sort notebooks by latest created to oldest
 	sort.SliceStable(books, func(i, j int) bool {
-		return books[i].Meta.UpdatedAt > books[j].Meta.UpdatedAt
+		return books[i].Meta.CreatedAt > books[j].Meta.CreatedAt
 	})
 
 	tagsList := make([]string, 0, len(allTags))
@@ -574,6 +565,10 @@ func (s *VaultService) SaveVisual(bookPath, fileName, content string) error {
 	visDir := filepath.Join(bookPath, "visuals")
 	_ = os.MkdirAll(visDir, 0755)
 	return os.WriteFile(filepath.Join(visDir, fileName), []byte(content), 0644)
+}
+
+func (s *VaultService) DeleteVisual(bookPath, fileName string) error {
+	return os.Remove(filepath.Join(bookPath, "visuals", fileName))
 }
 
 func (s *VaultService) DeleteBook(bookPath string) error {

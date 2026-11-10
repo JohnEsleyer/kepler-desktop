@@ -58,6 +58,10 @@ export const VaultAPI = {
   saveVisual: async (bookPath: string, fileName: string, content: string): Promise<void> => {
     await VaultService.SaveVisual(bookPath, fileName, content);
   },
+  deleteVisual: async (bookPath: string, fileName: string): Promise<void> => {
+    // Uses DeleteChapter with path visuals/fileName which targets filepath.Join(bookPath, "visuals", fileName)
+    await VaultService.DeleteChapter(bookPath, `visuals/${fileName}`);
+  },
   exportVaultZip: async (): Promise<string> => {
     return await VaultService.ExportVaultZip();
   },

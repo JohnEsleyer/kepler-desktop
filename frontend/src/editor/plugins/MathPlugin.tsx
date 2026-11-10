@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
+  $createParagraphNode,
   $createTextNode,
   $getNodeByKey,
+  $isParagraphNode,
   DecoratorNode,
   LexicalNode,
   NodeKey,
+  ParagraphNode,
   SerializedLexicalNode,
   Spread,
   TextNode,
@@ -46,6 +49,7 @@ const InteractiveMathViewer: React.FC<{
 
   return (
     <span
+      contentEditable={false}
       className="group relative inline-block cursor-pointer select-none"
       onDoubleClick={() => {
         setTempMath(math);
@@ -119,6 +123,7 @@ export class MathNode extends DecoratorNode<React.ReactElement> {
   createDOM(): HTMLElement {
     const span = document.createElement('span');
     span.className = this.__display ? 'math-node math-node-block' : 'math-node';
+    span.setAttribute('contenteditable', 'false');
     return span;
   }
 
@@ -127,7 +132,7 @@ export class MathNode extends DecoratorNode<React.ReactElement> {
   }
 
   isInline(): boolean {
-    return true;
+    return !this.__display;
   }
 
   getEquation(): string {
@@ -176,7 +181,22 @@ export function $isMathNode(node: LexicalNode | null | undefined): node is MathN
   return node instanceof MathNode;
 }
 
-const MATH_RE = /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/;
+export const MATH_RE = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/;
+
+/**
+ * Normalizes multi-line and block math strings prior to Lexical markdown import
+ * so that equations like:
+ * $$
+ * \frac{a}{b}
+ * $$
+ * are collapsed into clean $$\\frac{a}{b}$$ blocks rather than split into 3 disconnected paragraphs.
+ */
+export function normalizeMarkdownMath(content: string): string {
+  if (!content) return '';
+  return content.replace(/\$\$\s*\n([\s\S]*?)\n\s*\$\$/g, (_, eq) => {
+    return `$$${eq.trim()}$$`;
+  });
+}
 
 /**
  * Markdown transformer so `$inline$` and `$$display$$` survive
@@ -186,8 +206,8 @@ export const MATH_TRANSFORMER: TextMatchTransformer = {
   dependencies: [MathNode],
   export: (node) => {
     if (!$isMathNode(node)) return null;
-    const equation = node.getEquation();
-    return node.getDisplay() ? `\n$$\n${equation}\n$$\n` : `$${equation}$`;
+    const equation = node.getEquation().trim();
+    return node.getDisplay() ? `$$${equation}$$` : `$${equation}$`;
   },
   importRegExp: MATH_RE,
   regExp: MATH_RE,
@@ -202,10 +222,16 @@ export const MATH_TRANSFORMER: TextMatchTransformer = {
 
     const before = text.slice(0, index);
     const after = text.slice(index + full.length);
+    const isBlock = match[1] !== undefined;
+
     const replacement: LexicalNode[] = [];
     if (before) replacement.push($createTextNode(before));
-    replacement.push($createMathNode(equation, match[1] !== undefined));
-    if (after) replacement.push($createTextNode(after));
+    replacement.push($createMathNode(equation, isBlock));
+    if (after) {
+      replacement.push($createTextNode(after));
+    } else {
+      replacement.push($createTextNode(' '));
+    }
 
     for (const rep of replacement) {
       textNode.insertBefore(rep);
@@ -216,13 +242,36 @@ export const MATH_TRANSFORMER: TextMatchTransformer = {
 };
 
 /**
- * Converts freshly typed `$...$` / `$$...$$` text into math nodes live.
+ * Converts freshly typed `$...$` / `$$...$$` text into math nodes live,
+ * and reconciles markdown files where `$$` appears as isolated boundary paragraphs.
  */
 export function MathPlugin() {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    return editor.registerNodeTransform(TextNode, (node) => {
+    // 1. Reconcile markdown where `$$` is split into isolated paragraphs
+    const removeParagraphTransform = editor.registerNodeTransform(ParagraphNode, (pNode) => {
+      const text = pNode.getTextContent().trim();
+      if (text === '$$') {
+        const nextNode = pNode.getNextSibling();
+        if (nextNode && $isParagraphNode(nextNode)) {
+          const formula = nextNode.getTextContent().trim();
+          const endNode = nextNode.getNextSibling();
+          if (endNode && $isParagraphNode(endNode) && endNode.getTextContent().trim() === '$$') {
+            const mathNode = $createMathNode(formula, true);
+            const newP = $createParagraphNode();
+            newP.append(mathNode);
+            pNode.insertBefore(newP);
+            pNode.remove();
+            nextNode.remove();
+            endNode.remove();
+          }
+        }
+      }
+    });
+
+    // 2. Convert inline and display math typed into TextNodes
+    const removeTextTransform = editor.registerNodeTransform(TextNode, (node) => {
       const parent = node.getParent();
       if ($isCodeNode(parent)) return;
       if (node.getMode() === 'token') return;
@@ -239,16 +288,27 @@ export function MathPlugin() {
 
       const before = text.slice(0, match.index).replace(/\\\$/, '$');
       const after = text.slice(match.index + match[0].length);
+      const isBlock = match[1] !== undefined;
+
       const replacement: LexicalNode[] = [];
       if (before) replacement.push($createTextNode(before));
-      replacement.push($createMathNode(equation, match[1] !== undefined));
-      if (after) replacement.push($createTextNode(after));
+      replacement.push($createMathNode(equation, isBlock));
+      if (after) {
+        replacement.push($createTextNode(after));
+      } else {
+        replacement.push($createTextNode(' '));
+      }
 
       for (const rep of replacement) {
         node.insertBefore(rep);
       }
       node.remove();
     });
+
+    return () => {
+      removeParagraphTransform();
+      removeTextTransform();
+    };
   }, [editor]);
 
   return null;

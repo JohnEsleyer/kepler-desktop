@@ -27,7 +27,11 @@ export const KaTeXMathViewer: React.FC<{ math: string; block?: boolean }> = ({ m
     <span
       ref={containerRef}
       contentEditable={false}
-      className={block ? 'my-3 block w-full overflow-x-auto text-center' : 'mx-1 inline-block align-middle'}
+      className={
+        block
+          ? 'my-2 block w-full overflow-x-auto overflow-y-hidden text-center scrollbar-none'
+          : 'mx-1 inline-block align-middle'
+      }
     />
   );
 };

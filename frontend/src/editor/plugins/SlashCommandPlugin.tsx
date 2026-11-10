@@ -34,7 +34,7 @@ interface CommandItem {
   description: string;
   keywords: string;
   icon: React.ReactNode;
-  action: () => void;
+  action: (editor: any) => void;
 }
 
 export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { defaultCodeLanguage?: string }) {
@@ -53,12 +53,10 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
         keywords: 'heading title h1',
         icon: <Heading1 size={15} />,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              $setBlocksType(selection, () => $createHeadingNode('h1'));
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            $setBlocksType(selection, () => $createHeadingNode('h1'));
+          }
         },
       },
       {
@@ -68,12 +66,10 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
         keywords: 'heading subtitle h2',
         icon: <Heading2 size={15} />,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              $setBlocksType(selection, () => $createHeadingNode('h2'));
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            $setBlocksType(selection, () => $createHeadingNode('h2'));
+          }
         },
       },
       {
@@ -83,84 +79,197 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
         keywords: 'heading h3',
         icon: <Heading3 size={15} />,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              $setBlocksType(selection, () => $createHeadingNode('h3'));
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            $setBlocksType(selection, () => $createHeadingNode('h3'));
+          }
         },
       },
       {
         id: 'code',
         label: 'Code Block',
-        description: 'Code snippet with Prism syntax highlighting',
-        keywords: 'code snippet pre programming',
+        description: `Code snippet (${defaultCodeLanguage})`,
+        keywords: 'code snippet pre programming block',
         icon: <Code size={15} />,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              const codeNode = $createCodeNode();
-              codeNode.setLanguage(defaultCodeLanguage);
-              $setBlocksType(selection, () => codeNode);
-              // Automatically add paragraphs/spaces after it so user can easily escape the code block
-              const p1 = $createParagraphNode();
-              const p2 = $createParagraphNode();
-              const p3 = $createParagraphNode();
-              codeNode.insertAfter(p1);
-              p1.insertAfter(p2);
-              p2.insertAfter(p3);
-              codeNode.select();
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage(defaultCodeLanguage);
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-js',
+        label: 'Code Block (JavaScript)',
+        description: 'JavaScript syntax highlighted snippet',
+        keywords: 'code js javascript programming script',
+        icon: <span className="font-mono text-xs text-amber-400 font-bold">JS</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('javascript');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-ts',
+        label: 'Code Block (TypeScript)',
+        description: 'TypeScript syntax highlighted snippet',
+        keywords: 'code ts typescript typed',
+        icon: <span className="font-mono text-xs text-blue-400 font-bold">TS</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('typescript');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-python',
+        label: 'Code Block (Python)',
+        description: 'Python syntax highlighted snippet',
+        keywords: 'code py python def class',
+        icon: <span className="font-mono text-xs text-emerald-400 font-bold">PY</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('python');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-go',
+        label: 'Code Block (Go)',
+        description: 'Golang syntax highlighted snippet',
+        keywords: 'code go golang func',
+        icon: <span className="font-mono text-xs text-cyan-400 font-bold">GO</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('go');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-rust',
+        label: 'Code Block (Rust)',
+        description: 'Rust syntax highlighted snippet',
+        keywords: 'code rust rs fn struct',
+        icon: <span className="font-mono text-xs text-orange-400 font-bold">RS</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('rust');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-bash',
+        label: 'Code Block (Bash / Shell)',
+        description: 'Terminal and bash commands',
+        keywords: 'code bash sh shell terminal zsh',
+        icon: <span className="font-mono text-xs text-slate-300 font-bold">$_</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('bash');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-sql',
+        label: 'Code Block (SQL)',
+        description: 'SQL database queries',
+        keywords: 'code sql select query table db',
+        icon: <span className="font-mono text-xs text-indigo-400 font-bold">SQL</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('sql');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
         },
       },
       {
         id: 'math',
-        label: 'KaTeX Math Formula',
-        description: 'Inline LaTeX math notation',
-        keywords: 'math katex latex formula equation inline',
+        label: 'KaTeX Math Formula (Inline)',
+        description: 'Inline LaTeX mathematical notation',
+        keywords: 'math katex latex formula equation inline algebra',
         icon: <Calculator size={15} />,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              selection.insertNodes([$createMathNode('E = mc^2', false)]);
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertNodes([$createMathNode('E = mc^2', false)]);
+          }
         },
       },
       {
         id: 'math-block',
-        label: 'Math Block',
-        description: 'Display-mode KaTeX formula',
-        keywords: 'math katex latex formula equation block display',
+        label: 'KaTeX Math Block (Display)',
+        description: 'Centered display-mode LaTeX formula',
+        keywords: 'math katex latex formula equation block display integral',
         icon: <Sigma size={15} />,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              selection.insertNodes([$createMathNode('\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}', true)]);
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertNodes([$createMathNode('\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}', true)]);
+          }
         },
       },
       {
         id: 'bullet',
         label: 'Bullet List',
         description: 'Standard bulleted list',
-        keywords: 'bullet unordered list ul',
+        keywords: 'bullet unordered list ul item',
         icon: <List size={15} />,
-        action: () => editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined),
+        action: (ed) => ed.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined),
       },
       {
         id: 'numbered',
         label: 'Numbered List',
         description: 'Ordered numbering list',
-        keywords: 'numbered ordered list ol',
+        keywords: 'numbered ordered list ol sequence',
         icon: <ListOrdered size={15} />,
-        action: () => editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
+        action: (ed) => ed.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
       },
       {
         id: 'quote',
@@ -169,12 +278,10 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
         keywords: 'quote blockquote citation',
         icon: <Quote size={15} />,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              $setBlocksType(selection, () => $createQuoteNode());
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            $setBlocksType(selection, () => $createQuoteNode());
+          }
         },
       },
       {
@@ -184,16 +291,14 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
         keywords: 'divider hr line separator',
         icon: <span className="font-mono text-xs">---</span>,
         action: () => {
-          editor.update(() => {
-            const selection = $getSelection();
-            if ($isRangeSelection(selection)) {
-              selection.insertText('\n---\n');
-            }
-          });
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText('\n---\n');
+          }
         },
       },
     ],
-    [editor]
+    [defaultCodeLanguage]
   );
 
   const filtered = commandItems.filter((item) => {
@@ -262,8 +367,8 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
           }
         }
       }
+      item.action(editor);
     });
-    item.action();
     setIsOpen(false);
     setSearch('');
     setSelectedIndex(0);
@@ -333,7 +438,7 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
       className="fixed z-50 w-64 overflow-hidden rounded-xl border border-slate-700/80 bg-[#070b14] p-1.5 shadow-2xl shadow-indigo-950/60 backdrop-blur-xl"
     >
       <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-        {search ? `Results for “${search}”` : 'Basic Blocks'}
+        {search ? `Results for “${search}”` : 'Commands'}
       </div>
       <div className="max-h-60 space-y-0.5 overflow-y-auto">
         {filtered.map((item, idx) => (

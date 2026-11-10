@@ -37,6 +37,10 @@ export function DeleteChapter(bookPath: string, fileName: string): $CancellableP
     return $Call.ByID(1491419135, bookPath, fileName);
 }
 
+export function DeleteVisual(bookPath: string, fileName: string): $CancellablePromise<void> {
+    return $Call.ByID(2059014882, bookPath, fileName);
+}
+
 export function ExportVaultZip(): $CancellablePromise<string> {
     return $Call.ByID(2062305120);
 }
@@ -45,9 +49,6 @@ export function GetActiveVault(): $CancellablePromise<string> {
     return $Call.ByID(2747271455);
 }
 
-/**
- * OpenTerminalPath is invoked when the CLI provides `esper <path>`.
- */
 export function OpenTerminalPath(targetPath: string): $CancellablePromise<string> {
     return $Call.ByID(1134889962, targetPath);
 }
