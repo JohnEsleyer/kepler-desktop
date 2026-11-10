@@ -12,5 +12,6 @@ export type {
     Chapter,
     Question,
     VaultScanResult,
-    Visual
+    Visual,
+    WorkspaceEntry
 } from "./models.js";

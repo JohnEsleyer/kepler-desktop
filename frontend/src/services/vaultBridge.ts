@@ -1,6 +1,8 @@
-import { VaultScanResult } from '../types/vault';
+import { BookMeta, VaultScanResult } from '../types/vault';
 
-// Import the auto-generated Wails v3 bindings:
+// Auto-generated Wails v3 bindings. They are regenerated during the build with
+// `wails3 generate bindings`; using the bindings (instead of hand-written
+// Call.ByName strings) keeps the frontend and Go service signatures in sync.
 import * as VaultService from '../../bindings/changeme/services/vaultservice';
 
 export const VaultAPI = {
@@ -14,6 +16,17 @@ export const VaultAPI = {
   chooseVaultFolder: async (): Promise<string> => {
     return await VaultService.ChooseVaultFolder();
   },
+  openTerminalPath: async (path: string): Promise<string> => {
+    return await VaultService.OpenTerminalPath(path);
+  },
+  switchWorkspace: async (path: string): Promise<VaultScanResult> => {
+    const res = await VaultService.SwitchWorkspace(path);
+    return res as unknown as VaultScanResult;
+  },
+  closeWorkspace: async (path: string): Promise<VaultScanResult> => {
+    const res = await VaultService.CloseWorkspace(path);
+    return res as unknown as VaultScanResult;
+  },
   saveChapter: async (bookPath: string, fileName: string, content: string): Promise<void> => {
     await VaultService.SaveChapter(bookPath, fileName, content);
   },
@@ -23,8 +36,18 @@ export const VaultAPI = {
   deleteChapter: async (bookPath: string, fileName: string): Promise<void> => {
     await VaultService.DeleteChapter(bookPath, fileName);
   },
-  createBook: async (title: string, desc: string, tags: string, preset: string): Promise<string> => {
-    return await VaultService.CreateBook(title, desc, tags, preset);
+  createBook: async (
+    title: string,
+    desc: string,
+    tags: string,
+    preset: string,
+    showTitleOnCover: boolean,
+    coverDataUri: string
+  ): Promise<string> => {
+    return await VaultService.CreateBook(title, desc, tags, preset, showTitleOnCover, coverDataUri);
+  },
+  updateBookMeta: async (bookPath: string, meta: BookMeta): Promise<void> => {
+    await VaultService.UpdateBookMeta(bookPath, meta as unknown as Parameters<typeof VaultService.UpdateBookMeta>[1]);
   },
   deleteBook: async (bookPath: string): Promise<void> => {
     await VaultService.DeleteBook(bookPath);
@@ -32,7 +55,10 @@ export const VaultAPI = {
   saveQuestions: async (bookPath: string, questionsJson: string): Promise<void> => {
     await VaultService.SaveQuestions(bookPath, questionsJson);
   },
+  saveVisual: async (bookPath: string, fileName: string, content: string): Promise<void> => {
+    await VaultService.SaveVisual(bookPath, fileName, content);
+  },
   exportVaultZip: async (): Promise<string> => {
     return await VaultService.ExportVaultZip();
-  }
+  },
 };

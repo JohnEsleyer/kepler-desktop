@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Question } from '../types/vault';
 import { VaultAPI } from '../services/vaultBridge';
 import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useDialog } from './ui/CustomUI';
 
 interface QuestionsPaneProps {
   bookPath: string;
@@ -10,6 +11,7 @@ interface QuestionsPaneProps {
 }
 
 export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, questions, onRefresh }) => {
+  const { showPrompt, showConfirm } = useDialog();
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
 
   const toggleOpen = (id: string) => {
@@ -17,15 +19,28 @@ export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, question
   };
 
   const handleAddQuestion = async () => {
-    const title = prompt('Question prompt:');
-    if (!title) return;
-    const answer = prompt('Answer:') || '';
+    const title = await showPrompt({
+      title: 'New Review Question',
+      message: 'Add a prompt for active recall.',
+      placeholder: 'Question prompt...',
+      confirmText: 'Next',
+    });
+    if (!title || !title.trim()) return;
+
+    const answer = await showPrompt({
+      title: 'Answer',
+      message: `Answer for: “${title}”`,
+      placeholder: 'Answer...',
+      confirmText: 'Save Question',
+    });
+    if (answer === null) return;
+
     const updated = [
       ...questions,
       {
         id: `q-${Date.now()}`,
-        title,
-        answer,
+        title: title.trim(),
+        answer: answer.trim(),
         position: questions.length,
       },
     ];
@@ -34,6 +49,13 @@ export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, question
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await showConfirm({
+      title: 'Delete Question',
+      message: 'Remove this review question?',
+      confirmText: 'Delete',
+      isDanger: true,
+    });
+    if (!ok) return;
     const updated = questions.filter((q) => q.id !== id);
     await VaultAPI.saveQuestions(bookPath, JSON.stringify(updated, null, 2));
     onRefresh();
@@ -51,7 +73,7 @@ export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, question
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {questions.length === 0 ? (
           <div className="mt-8 text-center text-xs text-slate-500">
             No questions created. Click + to add flashcards or review prompts.
@@ -60,7 +82,7 @@ export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, question
           questions.map((q) => (
             <div key={q.id} className="rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-xs">
               <div
-                className="flex items-center justify-between font-semibold text-slate-200 cursor-pointer"
+                className="flex cursor-pointer items-center justify-between font-semibold text-slate-200"
                 onClick={() => toggleOpen(q.id)}
               >
                 <span>{q.title}</span>
@@ -78,7 +100,7 @@ export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, question
                 </div>
               </div>
               {openIds[q.id] && (
-                <div className="mt-2 border-t border-slate-800/80 pt-2 text-slate-400 leading-relaxed font-mono">
+                <div className="mt-2 whitespace-pre-wrap border-t border-slate-800/80 pt-2 font-mono leading-relaxed text-slate-400">
                   {q.answer || 'No answer supplied.'}
                 </div>
               )}

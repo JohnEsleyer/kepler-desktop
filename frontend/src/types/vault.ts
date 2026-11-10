@@ -4,6 +4,7 @@ export interface BookMeta {
   description: string;
   coverPreset: string;
   coverImage?: string | null;
+  showTitleOnCover: boolean;
   tags: string[];
   isPinned: boolean;
   createdAt: number;
@@ -42,8 +43,25 @@ export interface Book {
   visuals: Visual[];
 }
 
+export interface WorkspaceEntry {
+  path: string;
+  name: string;
+  bookCount: number;
+}
+
 export interface VaultScanResult {
   vaultPath: string;
   books: Book[];
   tags: string[];
+  workspaces: WorkspaceEntry[];
+  activeWorkspace: string;
+}
+
+export interface TabItem {
+  id: string;
+  workspacePath: string;
+  bookId: string;
+  bookPath: string;
+  title: string;
+  activeChapterIndex: number;
 }

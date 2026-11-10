@@ -1,8 +1,11 @@
+// File: services/vaultservice.go
+
 package services
 
 import (
 	"archive/zip"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,13 +23,17 @@ import (
 )
 
 type VaultService struct {
-	app        *application.App
-	activePath string
-	mu         sync.RWMutex
+	app             *application.App
+	activePath      string
+	savedWorkspaces []string
+	configDir       string
+	mu              sync.RWMutex
 }
 
 func NewVaultService() *VaultService {
-	vs := &VaultService{}
+	vs := &VaultService{
+		savedWorkspaces: make([]string, 0),
+	}
 	vs.initDefaultVault()
 	return vs
 }
@@ -43,6 +50,123 @@ func (s *VaultService) GetActiveVault() string {
 	return s.activePath
 }
 
+func (s *VaultService) initDefaultVault() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		configDir = os.TempDir()
+	}
+	s.configDir = filepath.Join(configDir, "EsperApp")
+	_ = os.MkdirAll(s.configDir, 0755)
+
+	s.loadWorkspacesList()
+
+	defaultPath := filepath.Join(s.configDir, "EsperVault")
+	_ = os.MkdirAll(defaultPath, 0755)
+
+	if len(s.savedWorkspaces) == 0 {
+		s.savedWorkspaces = append(s.savedWorkspaces, defaultPath)
+		s.persistWorkspacesList()
+	}
+
+	if s.activePath == "" {
+		s.activePath = s.savedWorkspaces[0]
+	}
+
+	// Seed the built-in vault only when it is completely empty.
+	if entries, err := os.ReadDir(defaultPath); err == nil && len(entries) == 0 {
+		s.seedDefaultBooks(defaultPath)
+	}
+}
+
+func (s *VaultService) loadWorkspacesList() {
+	wsFile := filepath.Join(s.configDir, "workspaces.json")
+	data, err := os.ReadFile(wsFile)
+	if err != nil {
+		return
+	}
+
+	var raw []string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+
+	// De-duplicate and discard empty entries so a hand-edited config never
+	// produces phantom workspaces in the sidebar.
+	seen := make(map[string]bool)
+	for _, ws := range raw {
+		clean := filepath.Clean(strings.TrimSpace(ws))
+		if clean == "" || clean == "." || seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		s.savedWorkspaces = append(s.savedWorkspaces, clean)
+	}
+}
+
+func (s *VaultService) persistWorkspacesList() {
+	wsFile := filepath.Join(s.configDir, "workspaces.json")
+	data, _ := json.MarshalIndent(s.savedWorkspaces, "", "  ")
+	_ = os.WriteFile(wsFile, data, 0644)
+}
+
+// normalizeWorkspacePath expands ~ and converts a terminal-supplied path into
+// an absolute, cleaned directory path.
+func normalizeWorkspacePath(targetPath string) (string, error) {
+	targetPath = strings.TrimSpace(targetPath)
+	targetPath = strings.Trim(targetPath, `"'`)
+	if targetPath == "" {
+		return "", fmt.Errorf("empty workspace path")
+	}
+
+	if targetPath == "~" || strings.HasPrefix(targetPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			if targetPath == "~" {
+				targetPath = home
+			} else {
+				targetPath = filepath.Join(home, targetPath[2:])
+			}
+		}
+	}
+
+	abs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
+}
+
+// OpenTerminalPath is invoked when the CLI provides `esper <path>`.
+func (s *VaultService) OpenTerminalPath(targetPath string) string {
+	abs, err := normalizeWorkspacePath(targetPath)
+	if err != nil {
+		return s.GetActiveVault()
+	}
+	_ = os.MkdirAll(abs, 0755)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	found := false
+	for _, ws := range s.savedWorkspaces {
+		if filepath.Clean(ws) == abs {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.savedWorkspaces = append(s.savedWorkspaces, abs)
+		s.persistWorkspacesList()
+	}
+
+	s.activePath = abs
+
+	if s.app != nil {
+		s.app.Event.Emit("workspace:opened", abs)
+	}
+	return s.activePath
+}
+
 func (s *VaultService) ChooseVaultFolder() (string, error) {
 	s.mu.RLock()
 	app := s.app
@@ -52,160 +176,92 @@ func (s *VaultService) ChooseVaultFolder() (string, error) {
 		return s.GetActiveVault(), fmt.Errorf("app not initialized")
 	}
 
-	// In Wails v3, directory selection is done via OpenFileDialog with directory selection enabled:
 	dialog := app.Dialog.OpenFile().
-		SetTitle("Select Esper Vault Folder").
+		SetTitle("Select Esper Workspace Folder").
 		CanChooseDirectories(true).
 		CanChooseFiles(false)
 
 	dir, err := dialog.PromptForSingleSelection()
-	if err != nil {
-		return "", err
-	}
-	if dir == "" {
-		return s.GetActiveVault(), nil
+	if err != nil || dir == "" {
+		return s.GetActiveVault(), err
 	}
 
 	s.mu.Lock()
-	s.activePath = dir
-	s.mu.Unlock()
+	defer s.mu.Unlock()
 
+	dir = filepath.Clean(dir)
+	found := false
+	for _, ws := range s.savedWorkspaces {
+		if filepath.Clean(ws) == dir {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.savedWorkspaces = append(s.savedWorkspaces, dir)
+		s.persistWorkspacesList()
+	}
+	s.activePath = dir
 	return dir, nil
 }
 
-func (s *VaultService) initDefaultVault() {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		configDir = os.TempDir()
+func (s *VaultService) SwitchWorkspace(dir string) (*VaultScanResult, error) {
+	clean := filepath.Clean(dir)
+	if _, err := os.Stat(clean); err != nil {
+		return nil, fmt.Errorf("workspace does not exist: %s", clean)
 	}
-	defaultPath := filepath.Join(configDir, "EsperVault")
-	_ = os.MkdirAll(defaultPath, 0755)
-	s.activePath = defaultPath
 
-	// Check if empty, seed initial books
-	entries, _ := os.ReadDir(defaultPath)
-	if len(entries) == 0 {
-		s.seedDefaultBooks(defaultPath)
+	s.mu.Lock()
+	s.activePath = clean
+	// Opening an already known workspace must not duplicate the entry.
+	found := false
+	for _, ws := range s.savedWorkspaces {
+		if filepath.Clean(ws) == clean {
+			found = true
+			break
+		}
 	}
+	if !found {
+		s.savedWorkspaces = append(s.savedWorkspaces, clean)
+		s.persistWorkspacesList()
+	}
+	s.mu.Unlock()
+
+	return s.ScanVault()
 }
 
-func (s *VaultService) seedDefaultBooks(root string) {
-	// 1. Astrodynamics
-	bookDir := filepath.Join(root, "Astrodynamics & Keplerian Orbits")
-	_ = os.MkdirAll(filepath.Join(bookDir, "visuals"), 0755)
-
-	meta := BookMeta{
-		ID:          "book-astrodynamics",
-		Title:       "Astrodynamics & Keplerian Orbits",
-		Description: "Interactive celestial mechanics, vis-viva equations, and orbital transfers.",
-		CoverPreset: "solar",
-		Tags:        []string{"Physics", "Astrodynamics", "Space"},
-		CreatedAt:   time.Now().UnixMilli(),
-		UpdatedAt:   time.Now().UnixMilli(),
+func (s *VaultService) CloseWorkspace(dir string) (*VaultScanResult, error) {
+	s.mu.Lock()
+	cleanTarget := filepath.Clean(dir)
+	filtered := make([]string, 0, len(s.savedWorkspaces))
+	for _, ws := range s.savedWorkspaces {
+		if filepath.Clean(ws) != cleanTarget {
+			filtered = append(filtered, ws)
+		}
 	}
-	rawMeta, _ := json.MarshalIndent(meta, "", "  ")
-	_ = os.WriteFile(filepath.Join(bookDir, "book.json"), rawMeta, 0644)
+	s.savedWorkspaces = filtered
+	s.persistWorkspacesList()
 
-	ch1 := `# Keplerian Motion
-
-Planetary motion obeys Kepler's three laws:
-
-1. The orbit of a planet is an ellipse with the Sun at one of the two foci.
-2. A line segment joining a planet and the Sun sweeps out equal areas during equal intervals of time.
-3. The square of the orbital period is proportional to the cube of the semi-major axis.
-
-$$\frac{T^2}{a^3} = \frac{4\pi^2}{G(M + m)}$$
-
-Notice how the areal velocity remains constant:
-$$\frac{dA}{dt} = \frac{1}{2} r^2 \dot{\theta} = \text{const}$$`
-	_ = os.WriteFile(filepath.Join(bookDir, "01_Keplerian_Motion.md"), []byte(ch1), 0644)
-
-	ch2 := `# The Vis-Viva Equation
-
-For any Keplerian orbit, the velocity at distance $r$ from the central body is determined by:
-
-$$v^2 = \mu \left( \frac{2}{r} - \frac{1}{a} \right)$$
-
-Where:
-- $v$ is orbital speed
-- $\mu = GM$ is the standard gravitational parameter
-- $r$ is orbital distance
-- $a$ is semi-major axis`
-	_ = os.WriteFile(filepath.Join(bookDir, "02_Vis-Viva_Energy.md"), []byte(ch2), 0644)
-
-	simHtml := `<!doctype html>
-<html>
-<body style="margin:0;background:#030712;color:#818cf8;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:monospace;">
-  <canvas id="c" width="400" height="400" style="background:#0b0f19;border-radius:12px;border:1px solid #1e293b;"></canvas>
-  <div style="margin-top:12px;font-size:12px;">Keplerian Orbit Simulation (Offline Canvas)</div>
-  <script>
-    const c = document.getElementById('c'), ctx = c.getContext('2d');
-    let t = 0;
-    function frame() {
-      ctx.clearRect(0,0,400,400);
-      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(200, 200, 140, 90, 0, 0, Math.PI*2); ctx.stroke();
-      // Star
-      ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(260, 200, 10, 0, Math.PI*2); ctx.fill();
-      // Planet
-      const x = 200 + 140 * Math.cos(t), y = 200 + 90 * Math.sin(t);
-      ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
-      t += 0.02;
-      requestAnimationFrame(frame);
-    }
-    frame();
-  </script>
-</body>
-</html>`
-	_ = os.WriteFile(filepath.Join(bookDir, "visuals", "01_orbit_simulation.html"), []byte(simHtml), 0644)
-}
-
-func naturalLess(a, b string) bool {
-	re := regexp.MustCompile(`(\d+|\D+)`)
-	aParts := re.FindAllString(a, -1)
-	bParts := re.FindAllString(b, -1)
-	for i := 0; i < len(aParts) && i < len(bParts); i++ {
-		ap, bp := aParts[i], bParts[i]
-		an, errA := strconv.ParseInt(ap, 10, 64)
-		bn, errB := strconv.ParseInt(bp, 10, 64)
-		if errA == nil && errB == nil {
-			if an != bn {
-				return an < bn
-			}
+	if filepath.Clean(s.activePath) == cleanTarget {
+		if len(s.savedWorkspaces) > 0 {
+			s.activePath = s.savedWorkspaces[0]
 		} else {
-			cmp := strings.Compare(strings.ToLower(ap), strings.ToLower(bp))
-			if cmp != 0 {
-				return cmp < 0
-			}
+			defaultPath := filepath.Join(s.configDir, "EsperVault")
+			_ = os.MkdirAll(defaultPath, 0755)
+			s.savedWorkspaces = []string{defaultPath}
+			s.activePath = defaultPath
+			s.persistWorkspacesList()
 		}
 	}
-	return len(aParts) < len(bParts)
-}
+	s.mu.Unlock()
 
-func extractTitle(content string, fileName string, fallbackIndex int) string {
-	lines := strings.Split(content, "\n")
-	for _, l := range lines {
-		l = strings.TrimSpace(l)
-		if l == "" || strings.HasPrefix(l, "---") {
-			continue
-		}
-		if strings.HasPrefix(l, "#") {
-			return strings.TrimSpace(strings.TrimLeft(l, "# \t"))
-		}
-		return l
-	}
-	clean := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-	re := regexp.MustCompile(`^[0-9._\-\s]+`)
-	clean = re.ReplaceAllString(clean, "")
-	if clean == "" {
-		return fmt.Sprintf("Chapter %d", fallbackIndex+1)
-	}
-	return strings.ReplaceAll(clean, "_", " ")
+	return s.ScanVault()
 }
 
 func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 	s.mu.RLock()
 	vaultRoot := s.activePath
+	workspaces := append([]string{}, s.savedWorkspaces...)
 	s.mu.RUnlock()
 
 	dirEntries, err := os.ReadDir(vaultRoot)
@@ -246,15 +302,37 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			allTags[t] = true
 		}
 
-		// Self-heal book.json if absent
 		if err != nil {
+			meta.ShowTitleOnCover = true
 			meta.CreatedAt = time.Now().UnixMilli()
 			meta.UpdatedAt = time.Now().UnixMilli()
 			updated, _ := json.MarshalIndent(meta, "", "  ")
 			_ = os.WriteFile(metaFile, updated, 0644)
 		}
 
-		// Chapters (*.md)
+		// Resolve a relative cover image into a data URI so the webview can
+		// render it without needing a custom asset protocol.
+		if meta.CoverImage != nil && *meta.CoverImage != "" && !strings.HasPrefix(*meta.CoverImage, "data:") {
+			coverFilePath := filepath.Join(bookDir, *meta.CoverImage)
+			if bData, readErr := os.ReadFile(coverFilePath); readErr == nil {
+				mime := "image/jpeg"
+				lowerName := strings.ToLower(*meta.CoverImage)
+				if strings.HasSuffix(lowerName, ".png") {
+					mime = "image/png"
+				} else if strings.HasSuffix(lowerName, ".webp") {
+					mime = "image/webp"
+				} else if strings.HasSuffix(lowerName, ".gif") {
+					mime = "image/gif"
+				}
+				dataUri := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(bData))
+				meta.CoverImage = &dataUri
+			} else {
+				// Avoid sending a broken relative path to the frontend.
+				meta.CoverImage = nil
+			}
+		}
+
+		// Read Chapters (*.md)
 		files, _ := os.ReadDir(bookDir)
 		mdNames := []string{}
 		for _, f := range files {
@@ -271,26 +349,23 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			content, _ := os.ReadFile(filepath.Join(bookDir, fn))
 			strContent := string(content)
 			chapters = append(chapters, Chapter{
-				ID:        fmt.Sprintf("p-%s-%s", meta.ID, fn),
-				BookID:    meta.ID,
-				FileName:  fn,
-				Title:     extractTitle(strContent, fn, idx),
-				Content:   strContent,
-				Position:  idx,
+				ID:       fmt.Sprintf("p-%s-%s", meta.ID, fn),
+				BookID:   meta.ID,
+				FileName: fn,
+				Title:    extractTitle(strContent, fn, idx),
+				Content:  strContent,
+				Position: idx,
 			})
 		}
 
-		// Questions
 		questions := []Question{}
 		rawQ, err := os.ReadFile(filepath.Join(bookDir, "questions.json"))
 		if err == nil {
 			_ = json.Unmarshal(rawQ, &questions)
 		}
 
-		// Visuals
 		visuals := []Visual{}
-		visualsDir := filepath.Join(bookDir, "visuals")
-		visEntries, _ := os.ReadDir(visualsDir)
+		visEntries, _ := os.ReadDir(filepath.Join(bookDir, "visuals"))
 		for _, vf := range visEntries {
 			if vf.IsDir() {
 				continue
@@ -300,12 +375,9 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			if strings.HasSuffix(lower, ".json") {
 				kind = "json"
 			}
-			content, _ := os.ReadFile(filepath.Join(visualsDir, vf.Name()))
-
-			// Extract chapter number prefix
+			content, _ := os.ReadFile(filepath.Join(bookDir, "visuals", vf.Name()))
 			assigned := 1
-			re := regexp.MustCompile(`^0*(\d+)`)
-			matches := re.FindStringSubmatch(vf.Name())
+			matches := regexp.MustCompile(`^0*(\d+)`).FindStringSubmatch(vf.Name())
 			if len(matches) > 1 {
 				if parsed, e := strconv.Atoi(matches[1]); e == nil {
 					assigned = parsed
@@ -336,17 +408,130 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 		})
 	}
 
+	// Sort books by most recently updated so edited notebooks float to the top.
+	sort.SliceStable(books, func(i, j int) bool {
+		return books[i].Meta.UpdatedAt > books[j].Meta.UpdatedAt
+	})
+
 	tagsList := make([]string, 0, len(allTags))
 	for t := range allTags {
 		tagsList = append(tagsList, t)
 	}
 	sort.Strings(tagsList)
 
+	wsEntries := make([]WorkspaceEntry, 0, len(workspaces))
+	for _, ws := range workspaces {
+		count := 0
+		if subDirs, e := os.ReadDir(ws); e == nil {
+			for _, sub := range subDirs {
+				if sub.IsDir() && !strings.HasPrefix(sub.Name(), ".") {
+					count++
+				}
+			}
+		}
+		wsEntries = append(wsEntries, WorkspaceEntry{
+			Path:      ws,
+			Name:      filepath.Base(ws),
+			BookCount: count,
+		})
+	}
+
 	return &VaultScanResult{
-		VaultPath: vaultRoot,
-		Books:     books,
-		Tags:      tagsList,
+		VaultPath:       vaultRoot,
+		Books:           books,
+		Tags:            tagsList,
+		Workspaces:      wsEntries,
+		ActiveWorkspace: vaultRoot,
 	}, nil
+}
+
+func (s *VaultService) UpdateBookMeta(bookPath string, meta BookMeta) error {
+	metaFile := filepath.Join(bookPath, "book.json")
+	meta.UpdatedAt = time.Now().UnixMilli()
+
+	if meta.CoverImage != nil && strings.HasPrefix(*meta.CoverImage, "data:") {
+		idx := strings.Index(*meta.CoverImage, ";base64,")
+		if idx != -1 {
+			mimeHeader := (*meta.CoverImage)[:idx]
+			ext := ".jpg"
+			if strings.Contains(mimeHeader, "png") {
+				ext = ".png"
+			} else if strings.Contains(mimeHeader, "webp") {
+				ext = ".webp"
+			} else if strings.Contains(mimeHeader, "gif") {
+				ext = ".gif"
+			}
+			rawDecoded, decErr := base64.StdEncoding.DecodeString((*meta.CoverImage)[idx+8:])
+			if decErr == nil {
+				coverFileName := "cover" + ext
+				_ = os.WriteFile(filepath.Join(bookPath, coverFileName), rawDecoded, 0644)
+				meta.CoverImage = &coverFileName
+			}
+		}
+	}
+
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(metaFile, data, 0644)
+}
+
+func (s *VaultService) CreateBook(title, description, tags, preset string, showTitleOnCover bool, coverDataUri string) (string, error) {
+	s.mu.RLock()
+	root := s.activePath
+	s.mu.RUnlock()
+
+	safeTitle := regexp.MustCompile(`[\\/:*?"<>|]+`).ReplaceAllString(title, "_")
+	bookDir := filepath.Join(root, safeTitle)
+	_ = os.MkdirAll(filepath.Join(bookDir, "visuals"), 0755)
+
+	tagList := strings.Split(tags, ",")
+	for i := range tagList {
+		tagList[i] = strings.TrimSpace(tagList[i])
+	}
+
+	var coverImageFile *string
+	if coverDataUri != "" && strings.HasPrefix(coverDataUri, "data:") {
+		idx := strings.Index(coverDataUri, ";base64,")
+		if idx != -1 {
+			rawDecoded, decErr := base64.StdEncoding.DecodeString(coverDataUri[idx+8:])
+			if decErr == nil {
+				fn := "cover.jpg"
+				mimeHeader := coverDataUri[:idx]
+				if strings.Contains(mimeHeader, "png") {
+					fn = "cover.png"
+				} else if strings.Contains(mimeHeader, "webp") {
+					fn = "cover.webp"
+				} else if strings.Contains(mimeHeader, "gif") {
+					fn = "cover.gif"
+				}
+				if writeErr := os.WriteFile(filepath.Join(bookDir, fn), rawDecoded, 0644); writeErr == nil {
+					coverImageFile = &fn
+				}
+			}
+		}
+	}
+
+	meta := BookMeta{
+		ID:               "book-" + randomHex(4),
+		Title:            title,
+		Description:      description,
+		CoverPreset:      preset,
+		CoverImage:       coverImageFile,
+		ShowTitleOnCover: showTitleOnCover,
+		Tags:             tagList,
+		CreatedAt:        time.Now().UnixMilli(),
+		UpdatedAt:        time.Now().UnixMilli(),
+	}
+
+	data, _ := json.MarshalIndent(meta, "", "  ")
+	_ = os.WriteFile(filepath.Join(bookDir, "book.json"), data, 0644)
+
+	ch1 := fmt.Sprintf("# %s\n\nWelcome to your new interactive notebook.", title)
+	_ = os.WriteFile(filepath.Join(bookDir, "01_Introduction.md"), []byte(ch1), 0644)
+
+	return bookDir, nil
 }
 
 func (s *VaultService) SaveChapter(bookPath, fileName, content string) error {
@@ -370,7 +555,7 @@ func (s *VaultService) CreateChapter(bookPath, title string) (string, error) {
 	nextNum := maxNum + 1
 	safeTitle := regexp.MustCompile(`[\\/:*?"<>| ]+`).ReplaceAllString(title, "_")
 	fileName := fmt.Sprintf("%02d_%s.md", nextNum, safeTitle)
-	body := fmt.Sprintf("# %s\n\nStart writing notes...", title)
+	body := fmt.Sprintf("# %s\n\nWrite your thoughts, formulas, or code snippets here...", title)
 
 	err := os.WriteFile(filepath.Join(bookPath, fileName), []byte(body), 0644)
 	return fileName, err
@@ -378,38 +563,6 @@ func (s *VaultService) CreateChapter(bookPath, title string) (string, error) {
 
 func (s *VaultService) DeleteChapter(bookPath, fileName string) error {
 	return os.Remove(filepath.Join(bookPath, fileName))
-}
-
-func (s *VaultService) CreateBook(title, description, tags, preset string) (string, error) {
-	s.mu.RLock()
-	root := s.activePath
-	s.mu.RUnlock()
-
-	safeTitle := regexp.MustCompile(`[\\/:*?"<>|]+`).ReplaceAllString(title, "_")
-	bookDir := filepath.Join(root, safeTitle)
-	_ = os.MkdirAll(filepath.Join(bookDir, "visuals"), 0755)
-
-	tagList := strings.Split(tags, ",")
-	for i := range tagList {
-		tagList[i] = strings.TrimSpace(tagList[i])
-	}
-
-	meta := BookMeta{
-		ID:          "book-" + randomHex(4),
-		Title:       title,
-		Description: description,
-		CoverPreset: preset,
-		Tags:        tagList,
-		CreatedAt:   time.Now().UnixMilli(),
-		UpdatedAt:   time.Now().UnixMilli(),
-	}
-	metaData, _ := json.MarshalIndent(meta, "", "  ")
-	_ = os.WriteFile(filepath.Join(bookDir, "book.json"), metaData, 0644)
-
-	ch1 := fmt.Sprintf("# %s\n\nWelcome to your new notebook.", title)
-	_ = os.WriteFile(filepath.Join(bookDir, "01_Introduction.md"), []byte(ch1), 0644)
-
-	return bookDir, nil
 }
 
 func (s *VaultService) SaveQuestions(bookPath string, questionsJSON string) error {
@@ -465,6 +618,80 @@ func (s *VaultService) ExportVaultZip() (string, error) {
 
 	_ = filepath.Walk(root, walker)
 	return outPath, nil
+}
+
+func (s *VaultService) seedDefaultBooks(root string) {
+	bookDir := filepath.Join(root, "Astrodynamics & Keplerian Orbits")
+	_ = os.MkdirAll(filepath.Join(bookDir, "visuals"), 0755)
+
+	meta := BookMeta{
+		ID:               "book-astrodynamics",
+		Title:            "Astrodynamics & Keplerian Orbits",
+		Description:      "Interactive celestial mechanics, vis-viva equations, and orbital transfers.",
+		CoverPreset:      "solar",
+		ShowTitleOnCover: true,
+		Tags:             []string{"Physics", "Astrodynamics", "Space"},
+		CreatedAt:        time.Now().UnixMilli(),
+		UpdatedAt:        time.Now().UnixMilli(),
+	}
+	rawMeta, _ := json.MarshalIndent(meta, "", "  ")
+	_ = os.WriteFile(filepath.Join(bookDir, "book.json"), rawMeta, 0644)
+
+	ch1 := `# Keplerian Motion
+
+Planetary motion obeys Kepler's three laws:
+
+1. The orbit of a planet is an ellipse with the Sun at one of the two foci.
+2. Equal areas are swept out during equal intervals:
+$$\frac{dA}{dt} = \frac{1}{2} r^2 \dot{\theta} = \text{const}$$
+3. Harmonic relation:
+$$\frac{T^2}{a^3} = \frac{4\pi^2}{G(M + m)}$$`
+	_ = os.WriteFile(filepath.Join(bookDir, "01_Keplerian_Motion.md"), []byte(ch1), 0644)
+
+	simHtml := `<!doctype html><html><body style="margin:0;background:#030712;display:flex;align-items:center;justify-content:center;height:100vh;"><canvas id="c" width="400" height="400" style="background:#0b0f19;border-radius:12px;border:1px solid #1e293b;"></canvas><script>const c=document.getElementById('c'),ctx=c.getContext('2d');let t=0;function r(){ctx.clearRect(0,0,400,400);ctx.strokeStyle='#334155';ctx.beginPath();ctx.ellipse(200,200,130,85,0,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.arc(250,200,9,0,Math.PI*2);ctx.fill();ctx.fillStyle='#38bdf8';ctx.beginPath();ctx.arc(200+130*Math.cos(t),200+85*Math.sin(t),6,0,Math.PI*2);ctx.fill();t+=0.025;requestAnimationFrame(r);}r();</script></body></html>`
+	_ = os.WriteFile(filepath.Join(bookDir, "visuals", "01_orbit.html"), []byte(simHtml), 0644)
+}
+
+func naturalLess(a, b string) bool {
+	re := regexp.MustCompile(`(\d+|\D+)`)
+	aParts := re.FindAllString(a, -1)
+	bParts := re.FindAllString(b, -1)
+	for i := 0; i < len(aParts) && i < len(bParts); i++ {
+		ap, bp := aParts[i], bParts[i]
+		an, errA := strconv.ParseInt(ap, 10, 64)
+		bn, errB := strconv.ParseInt(bp, 10, 64)
+		if errA == nil && errB == nil {
+			if an != bn {
+				return an < bn
+			}
+		} else {
+			cmp := strings.Compare(strings.ToLower(ap), strings.ToLower(bp))
+			if cmp != 0 {
+				return cmp < 0
+			}
+		}
+	}
+	return len(aParts) < len(bParts)
+}
+
+func extractTitle(content string, fileName string, fallbackIndex int) string {
+	lines := strings.Split(content, "\n")
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, "---") {
+			continue
+		}
+		if strings.HasPrefix(l, "#") {
+			return strings.TrimSpace(strings.TrimLeft(l, "# \t"))
+		}
+		return l
+	}
+	clean := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	clean = regexp.MustCompile(`^[0-9._\-\s]+`).ReplaceAllString(clean, "")
+	if clean == "" {
+		return fmt.Sprintf("Chapter %d", fallbackIndex+1)
+	}
+	return strings.ReplaceAll(clean, "_", " ")
 }
 
 func randomHex(bytes int) string {

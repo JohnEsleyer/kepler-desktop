@@ -41,7 +41,14 @@ dirs:
     .task:
         enabled: false
     _dev:
-        enabled: false
+        enabled: true
+        include:
+            - "docs"
+        exclude:
+            - "scripts"
+        extensions:
+            - md
+            - xml
     bin:
         enabled: false
     build:
@@ -52,7 +59,3 @@ dirs:
         enabled: false
     frontend/node_modules:
         enabled: false
-    _dev/scripts:
-        enabled: false
-    _dev/docs:
-        enabled: true

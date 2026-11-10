@@ -17,8 +17,12 @@ export function ChooseVaultFolder(): $CancellablePromise<string> {
     return $Call.ByID(917244012);
 }
 
-export function CreateBook(title: string, description: string, tags: string, preset: string): $CancellablePromise<string> {
-    return $Call.ByID(118720268, title, description, tags, preset);
+export function CloseWorkspace(dir: string): $CancellablePromise<$models.VaultScanResult | null> {
+    return $Call.ByID(2235951436, dir);
+}
+
+export function CreateBook(title: string, description: string, tags: string, preset: string, showTitleOnCover: boolean, coverDataUri: string): $CancellablePromise<string> {
+    return $Call.ByID(118720268, title, description, tags, preset, showTitleOnCover, coverDataUri);
 }
 
 export function CreateChapter(bookPath: string, title: string): $CancellablePromise<string> {
@@ -41,6 +45,13 @@ export function GetActiveVault(): $CancellablePromise<string> {
     return $Call.ByID(2747271455);
 }
 
+/**
+ * OpenTerminalPath is invoked when the CLI provides `esper <path>`.
+ */
+export function OpenTerminalPath(targetPath: string): $CancellablePromise<string> {
+    return $Call.ByID(1134889962, targetPath);
+}
+
 export function SaveChapter(bookPath: string, fileName: string, content: string): $CancellablePromise<void> {
     return $Call.ByID(71708153, bookPath, fileName, content);
 }
@@ -59,4 +70,12 @@ export function ScanVault(): $CancellablePromise<$models.VaultScanResult | null>
 
 export function SetApp(app: application$0.App | null): $CancellablePromise<void> {
     return $Call.ByID(1430903802, app);
+}
+
+export function SwitchWorkspace(dir: string): $CancellablePromise<$models.VaultScanResult | null> {
+    return $Call.ByID(1847686678, dir);
+}
+
+export function UpdateBookMeta(bookPath: string, meta: $models.BookMeta): $CancellablePromise<void> {
+    return $Call.ByID(1243037776, bookPath, meta);
 }

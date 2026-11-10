@@ -14,7 +14,12 @@ export interface BookMeta {
     "title": string;
     "description": string;
     "coverPreset": string;
+
+    /**
+     * base64 data URL or relative path
+     */
     "coverImage": string | null;
+    "showTitleOnCover": boolean;
     "tags": string[] | null;
     "isPinned": boolean;
     "createdAt": number;
@@ -41,6 +46,8 @@ export interface VaultScanResult {
     "vaultPath": string;
     "books": Book[] | null;
     "tags": string[] | null;
+    "workspaces": WorkspaceEntry[] | null;
+    "activeWorkspace": string;
 }
 
 export interface Visual {
@@ -53,4 +60,10 @@ export interface Visual {
     "kind": string;
     "assignedChapter": number;
     "content": string;
+}
+
+export interface WorkspaceEntry {
+    "path": string;
+    "name": string;
+    "bookCount": number;
 }

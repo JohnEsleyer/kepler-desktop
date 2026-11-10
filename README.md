@@ -1,6 +1,6 @@
-# Welcome to Your New Wails3 Project!
+# Kepler Desktop
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+Kepler is an offline, folder-backed workspace for books, structured notes, and interactive simulations.
 
 ## Getting Started
 
