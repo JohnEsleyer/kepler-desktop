@@ -165,13 +165,17 @@ function EditorBridge({
     return registerCodeHighlighting(editor);
   }, [editor]);
 
-  // Hydrate the editor from normalized Markdown once per chapter.
+  // Hydrate the editor from normalized Markdown once per chapter on mount.
+  const isInitializedRef = useRef(false);
   useEffect(() => {
-    editor.update(() => {
-      const normalized = normalizeMarkdownMath(initialContent);
-      $convertFromMarkdownString(normalized, EDITOR_TRANSFORMERS);
-    });
-  }, [initialContent, editor]);
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+      editor.update(() => {
+        const normalized = normalizeMarkdownMath(initialContent);
+        $convertFromMarkdownString(normalized, EDITOR_TRANSFORMERS);
+      });
+    }
+  }, [editor, initialContent]);
 
   const flashStatus = useCallback((status: string) => {
     setSavedStatus(status);
@@ -193,6 +197,18 @@ function EditorBridge({
       setIsSaving(false);
     }
   }, [editor, flashStatus, isSaving]);
+
+  // Keyboard shortcut: Ctrl+S / Cmd+S for manual save without browser dialog.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleManualSave();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleManualSave]);
 
   // Debounced real-time autosave
   useEffect(() => {

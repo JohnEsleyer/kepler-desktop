@@ -18,3 +18,6 @@ _dev
 
 # Kepler workspace artifacts (written into any opened workspace folder)
 book.json
+
+# Kepler binary
+kepler
