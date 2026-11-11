@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Question } from '../types/vault';
 import { VaultAPI } from '../services/vaultBridge';
-import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
 import { useDialog } from './ui/CustomUI';
 
 interface QuestionsPaneProps {
@@ -48,6 +48,32 @@ export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, question
     onRefresh();
   };
 
+  const handleEditQuestion = async (q: Question) => {
+    const newTitle = await showPrompt({
+      title: 'Edit Review Question',
+      message: 'Update the prompt for active recall.',
+      defaultValue: q.title,
+      placeholder: 'Question prompt...',
+      confirmText: 'Next',
+    });
+    if (newTitle === null || !newTitle.trim()) return;
+
+    const newAnswer = await showPrompt({
+      title: 'Edit Answer',
+      message: `Answer for: “${newTitle}”`,
+      defaultValue: q.answer,
+      placeholder: 'Answer...',
+      confirmText: 'Save Question',
+    });
+    if (newAnswer === null) return;
+
+    const updated = questions.map((item) =>
+      item.id === q.id ? { ...item, title: newTitle.trim(), answer: newAnswer.trim() } : item
+    );
+    await VaultAPI.saveQuestions(bookPath, JSON.stringify(updated, null, 2));
+    onRefresh();
+  };
+
   const handleDelete = async (id: string) => {
     const ok = await showConfirm({
       title: 'Delete Question',
@@ -90,9 +116,20 @@ export const QuestionsPane: React.FC<QuestionsPaneProps> = ({ bookPath, question
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      handleEditQuestion(q);
+                    }}
+                    className="p-1 text-slate-500 transition hover:text-indigo-300"
+                    title="Edit question"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       handleDelete(q.id);
                     }}
-                    className="p-1 text-slate-500 hover:text-rose-400"
+                    className="p-1 text-slate-500 transition hover:text-rose-400"
+                    title="Delete question"
                   >
                     <Trash2 size={12} />
                   </button>

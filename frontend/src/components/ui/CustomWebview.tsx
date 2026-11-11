@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { RotateCw, Code, Play, Save, X, ShieldCheck, Wand2, Trash2 } from 'lucide-react';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-markup';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-css';
+import Editor from '@monaco-editor/react';
+import { monaco } from '../../lib/monacoSetup';
 
 interface CustomWebviewProps {
   title: string;
@@ -15,7 +13,7 @@ interface CustomWebviewProps {
   onDelete?: () => void;
 }
 
-// Basic HTML formatter to format HTML strings with proper tags and indentation
+// Lightweight HTML formatter used when Monaco's built-in formatter is unavailable.
 function formatHtmlCode(raw: string): string {
   let formatted = '';
   let indent = 0;
@@ -63,8 +61,7 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
   onDelete,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const gutterRef = useRef<HTMLDivElement>(null);
+  const monacoEditorRef = useRef<any>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorViewMode, setEditorViewMode] = useState<'split' | 'code' | 'preview'>('split');
@@ -112,14 +109,6 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
     return () => clearTimeout(timer);
   }, [content, reloadKey, isEditorOpen]);
 
-  const highlightedHtml = useMemo(() => {
-    try {
-      return Prism.highlight(code, Prism.languages.markup || Prism.languages.html, 'markup');
-    } catch {
-      return code;
-    }
-  }, [code]);
-
   const handleSave = useCallback(
     async (textToSave?: string) => {
       const finalContent = textToSave !== undefined ? textToSave : code;
@@ -132,6 +121,10 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
     [fileName, code, onSave]
   );
 
+  // Keep the Ctrl/Cmd+S shortcut bound to the latest save handler.
+  const saveRef = useRef(handleSave);
+  saveRef.current = handleSave;
+
   // Debounced real-time save while typing HTML
   const handleCodeChange = (newCode: string) => {
     setCode(newCode);
@@ -142,50 +135,26 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
   };
 
   const handleFormat = () => {
-    const formatted = formatHtmlCode(code);
-    setCode(formatted);
-    handleSave(formatted);
-  };
-
-  // Support Tab key for 2-space indentation
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const el = e.currentTarget;
-      const start = el.selectionStart;
-      const end = el.selectionEnd;
-      const val = el.value;
-      const next = val.substring(0, start) + '  ' + val.substring(end);
-      handleCodeChange(next);
-      setTimeout(() => {
-        el.setSelectionRange(start + 2, start + 2);
-      }, 0);
-    } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      handleSave();
-    }
-  };
-
-  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+    if (monacoEditorRef.current) {
+      monacoEditorRef.current.getAction('editor.action.formatDocument')?.run();
+    } else {
+      const formatted = formatHtmlCode(code);
+      setCode(formatted);
+      handleSave(formatted);
     }
   };
 
   const insertSnippet = (snippetText: string) => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const newCode = code.substring(0, start) + snippetText + code.substring(end);
-    handleCodeChange(newCode);
-    setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(start + snippetText.length, start + snippetText.length);
-    }, 10);
+    if (monacoEditorRef.current) {
+      const editor = monacoEditorRef.current;
+      const selection = editor.getSelection();
+      const op = { range: selection, text: snippetText, forceMoveMarkers: true };
+      editor.executeEdits('snippet', [op]);
+      editor.focus();
+    } else {
+      handleCodeChange(code + '\n' + snippetText);
+    }
   };
-
-  const linesCount = useMemo(() => Math.max(1, code.split('\n').length), [code]);
 
   return (
     <>
@@ -196,7 +165,7 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
             <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
             <span className="truncate text-xs font-semibold text-slate-300">{title}</span>
             <span className="flex items-center gap-1 rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-              <ShieldCheck size={11} className="text-indigo-400" /> HTML
+              <ShieldCheck size={11} className="text-indigo-400" /> {kind.toUpperCase()}
             </span>
           </div>
 
@@ -205,10 +174,10 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
               type="button"
               onClick={() => setIsEditorOpen(true)}
               className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-indigo-300 transition hover:bg-slate-800"
-              title="Open HTML Code Editor"
+              title="Open Code Editor"
             >
               <Code size={13} />
-              <span>Edit HTML</span>
+              <span>Edit Code</span>
             </button>
             <button
               type="button"
@@ -249,7 +218,7 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
         </div>
       </div>
 
-      {/* HTML Code Editor with Syntax Highlighting and Split Preview */}
+      {/* Fullscreen Monaco code editor with split live preview */}
       {isEditorOpen && (
         <div className="fixed inset-0 z-[120] flex flex-col bg-[#030712] text-slate-100">
           {/* Top Bar */}
@@ -265,12 +234,12 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
               <div className="h-4 w-[1px] bg-slate-800" />
               <div>
                 <h2 className="text-xs font-bold text-white">{title}</h2>
-                <p className="font-mono text-[10px] text-slate-500">{fileName} · HTML Text Editor</p>
+                <p className="font-mono text-[10px] text-slate-500">{fileName} · Monaco Code Editor</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              {/* View mode toggle: Split, Code Only, Preview Only */}
+              {/* View mode toggle */}
               <div className="flex rounded-lg border border-slate-800 bg-slate-900 p-0.5 text-xs">
                 <button
                   type="button"
@@ -305,7 +274,7 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
                 type="button"
                 onClick={handleFormat}
                 className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
-                title="Format HTML Code"
+                title="Format Code"
               >
                 <Wand2 size={13} className="text-amber-400" />
                 <span>Format</span>
@@ -330,7 +299,7 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
             {/* Left: Code Editor (shown in 'code' or 'split') */}
             {editorViewMode !== 'preview' && (
               <div className={`flex flex-col overflow-hidden border-r border-slate-800 ${editorViewMode === 'split' ? 'w-1/2' : 'w-full'}`}>
-                {/* HTML Snippet Toolbar */}
+                {/* Snippet Toolbar */}
                 <div className="flex items-center gap-1.5 overflow-x-auto border-b border-slate-800/80 bg-[#060913] px-4 py-2 scrollbar-none">
                   {[
                     { label: '<div>', text: '<div></div>' },
@@ -352,37 +321,38 @@ export const CustomWebview: React.FC<CustomWebviewProps> = ({
                   ))}
                 </div>
 
-                {/* Editor Workspace with Line Numbers and Syntax Highlighting */}
-                <div className="relative flex flex-1 overflow-hidden bg-[#020617]">
-                  {/* Line Numbers Gutter */}
-                  <div
-                    ref={gutterRef}
-                    className="w-12 select-none overflow-hidden border-r border-slate-800/80 bg-[#050811] py-4 pr-3 text-right font-mono text-xs text-slate-600"
-                  >
-                    {Array.from({ length: linesCount }, (_, i) => (
-                      <div key={i + 1} className="leading-6">
-                        {i + 1}
+                {/* Monaco Editor Component */}
+                <div className="relative flex-1 overflow-hidden bg-[#020617]">
+                  <Editor
+                    height="100%"
+                    language={kind === 'json' ? 'json' : 'html'}
+                    theme="vs-dark"
+                    value={code}
+                    onChange={(val) => handleCodeChange(val || '')}
+                    onMount={(editor) => {
+                      monacoEditorRef.current = editor;
+                      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+                        saveRef.current(editor.getValue());
+                      });
+                    }}
+                    options={{
+                      fontSize: 13,
+                      fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                      minimap: { enabled: false },
+                      scrollBeyondLastLine: false,
+                      lineNumbers: 'on',
+                      automaticLayout: true,
+                      tabSize: 2,
+                      wordWrap: 'on',
+                      bracketPairColorization: { enabled: true },
+                      formatOnPaste: true,
+                    }}
+                    loading={
+                      <div className="flex h-full w-full items-center justify-center bg-[#020617] text-xs text-slate-500">
+                        Loading Monaco Editor...
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Overlaid Highlighted Display & Transparent Input Textarea */}
-                  <div className="relative flex-1 overflow-auto">
-                    <pre
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 m-0 p-4 font-mono text-xs leading-6 text-slate-200 overflow-hidden"
-                      dangerouslySetInnerHTML={{ __html: highlightedHtml + '\n' }}
-                    />
-                    <textarea
-                      ref={textareaRef}
-                      value={code}
-                      onChange={(e) => handleCodeChange(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      onScroll={handleScroll}
-                      spellCheck={false}
-                      className="absolute inset-0 h-full w-full resize-none bg-transparent p-4 font-mono text-xs leading-6 text-transparent caret-indigo-400 outline-none select-text"
-                    />
-                  </div>
+                    }
+                  />
                 </div>
               </div>
             )}

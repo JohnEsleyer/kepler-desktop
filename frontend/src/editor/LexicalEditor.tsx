@@ -10,9 +10,12 @@ import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-markup';
 import 'prismjs/components/prism-css';
 import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-c';
 import 'prismjs/components/prism-cpp';
 import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-kotlin';
+import 'prismjs/components/prism-java';
 
 // Expose Prism globally for @lexical/code highlighter
 if (typeof window !== 'undefined') {
@@ -66,6 +69,8 @@ import {
 const CODE_LANGUAGES = [
   { label: 'JavaScript', value: 'javascript' },
   { label: 'TypeScript', value: 'typescript' },
+  { label: 'Kotlin', value: 'kotlin' },
+  { label: 'Java', value: 'java' },
   { label: 'Python', value: 'python' },
   { label: 'Go', value: 'go' },
   { label: 'Rust', value: 'rust' },

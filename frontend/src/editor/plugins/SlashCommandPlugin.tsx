@@ -140,6 +140,42 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
         },
       },
       {
+        id: 'code-kotlin',
+        label: 'Code Block (Kotlin)',
+        description: 'Kotlin syntax highlighted snippet',
+        keywords: 'code kt kotlin fun class android val var',
+        icon: <span className="font-mono text-xs text-purple-400 font-bold">KT</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('kotlin');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
+        id: 'code-java',
+        label: 'Code Block (Java)',
+        description: 'Java syntax highlighted snippet',
+        keywords: 'code java jvm class public static void',
+        icon: <span className="font-mono text-xs text-red-400 font-bold">JAVA</span>,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const codeNode = $createCodeNode();
+            codeNode.setLanguage('java');
+            $setBlocksType(selection, () => codeNode);
+            const p1 = $createParagraphNode();
+            codeNode.insertAfter(p1);
+            codeNode.select();
+          }
+        },
+      },
+      {
         id: 'code-python',
         label: 'Code Block (Python)',
         description: 'Python syntax highlighted snippet',

@@ -16,6 +16,26 @@ interface WorkspaceProps {
   onChapterChange?: (index: number) => void;
 }
 
+// Derives the chapter title from the first non-empty line of the note,
+// ignoring markdown formatting such as #, ##, bold, italics and inline code.
+function extractFirstLineTitle(markdown: string, fallbackName: string, idx: number): string {
+  for (let line of markdown.split('\n')) {
+    line = line.trim();
+    if (!line || line.startsWith('---')) continue;
+    line = line.replace(/^#+\s*/, '');
+    line = line.replace(/^(\*\*|__|\*|_|`)/, '').replace(/(\*\*|__|\*|_|`)$/, '');
+    line = line.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    line = line.trim();
+    if (line) return line;
+  }
+  const clean = fallbackName
+    .replace(/\.md$/i, '')
+    .replace(/^[0-9._\-\s]+/, '')
+    .replace(/_/g, ' ')
+    .trim();
+  return clean || `Chapter ${idx + 1}`;
+}
+
 export const Workspace: React.FC<WorkspaceProps> = ({
   book,
   onBack,
@@ -26,7 +46,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const { showPrompt, showConfirm } = useDialog();
   const [activeChapterIndex, setActiveChapterIndex] = useState<number>(initialChapterIndex);
   const [isChaptersOpen, setIsChaptersOpen] = useState<boolean>(true);
-  const [rightDrawerMode, setRightDrawerMode] = useState<'none' | 'questions' | 'visual'>('visual');
+
+  // If the initial chapter has no visual companion, keep the drawer closed.
+  const [rightDrawerMode, setRightDrawerMode] = useState<'none' | 'questions' | 'visual'>(() => {
+    const hasInitialVisual = book.visuals.some((v) => v.assignedChapter === initialChapterIndex + 1);
+    return hasInitialVisual ? 'visual' : 'none';
+  });
+
+  // Live title overrides derived from the first line of each chapter note.
+  const [chapterTitles, setChapterTitles] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (activeChapterIndex >= book.chapters.length) {
@@ -41,6 +69,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   // Matched strictly by chapter position (1-based: activeChapterIndex + 1).
   const matchedVisual = book.visuals.find((v) => v.assignedChapter === activeChapterIndex + 1);
 
+  // Switching to a chapter without a visual companion turns the drawer off.
+  // Deliberately does not depend on rightDrawerMode, so the user can still
+  // manually open the drawer to create a companion for such a chapter.
+  useEffect(() => {
+    const hasVisual = book.visuals.some((v) => v.assignedChapter === activeChapterIndex + 1);
+    if (!hasVisual) {
+      setRightDrawerMode((prev) => (prev === 'visual' ? 'none' : prev));
+    }
+  }, [activeChapterIndex, book.visuals]);
+
   const selectChapter = (index: number) => {
     setActiveChapterIndex(index);
     onChapterChange?.(index);
@@ -49,12 +87,39 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleSaveNotes = async (updatedMarkdown: string) => {
     if (!activeChapter) return;
     try {
+      const derivedTitle = extractFirstLineTitle(
+        updatedMarkdown,
+        activeChapter.fileName,
+        activeChapterIndex
+      );
+
       activeChapter.content = updatedMarkdown;
+      if (derivedTitle && derivedTitle !== activeChapter.title) {
+        activeChapter.title = derivedTitle;
+      }
+
+      // Trigger a re-render so the chapter sidebar reflects the new title
+      // while the user is typing.
+      setChapterTitles((prev) =>
+        prev[activeChapter.fileName] === derivedTitle
+          ? prev
+          : { ...prev, [activeChapter.fileName]: derivedTitle }
+      );
+
       await VaultAPI.saveChapter(book.path, activeChapter.fileName, updatedMarkdown);
     } catch (err) {
       console.error('Failed to save chapter:', err);
     }
   };
+
+  const chaptersWithLiveTitles = book.chapters.map((ch) => {
+    const liveTitle = chapterTitles[ch.fileName];
+    return liveTitle && liveTitle !== ch.title ? { ...ch, title: liveTitle } : ch;
+  });
+
+  const activeChapterTitle = activeChapter
+    ? chapterTitles[activeChapter.fileName] || activeChapter.title
+    : `Chapter ${activeChapterIndex + 1}`;
 
   const handleCreateChapter = async () => {
     const title = await showPrompt({
@@ -235,7 +300,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               </div>
             </div>
             <ChapterList
-              chapters={book.chapters}
+              chapters={chaptersWithLiveTitles}
               activeIndex={activeChapterIndex}
               onSelect={selectChapter}
               onDelete={handleDeleteChapter}
@@ -282,7 +347,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           <div className="flex w-96 shrink-0 flex-col border-l border-slate-800 bg-[#070b14]">
             <VisualViewer
               chapterNumber={activeChapterIndex + 1}
-              chapterTitle={activeChapter ? activeChapter.title : `Chapter ${activeChapterIndex + 1}`}
+              chapterTitle={activeChapterTitle}
               visual={matchedVisual}
               onCreateVisual={handleCreateVisualForChapter}
               onDeleteVisual={handleDeleteVisual}

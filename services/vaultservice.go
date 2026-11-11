@@ -78,6 +78,11 @@ func (s *VaultService) initDefaultVault() {
 	}
 }
 
+type workspacesConfig struct {
+	Active     string   `json:"active"`
+	Workspaces []string `json:"workspaces"`
+}
+
 func (s *VaultService) loadWorkspacesList() {
 	wsFile := filepath.Join(s.configDir, "workspaces.json")
 	data, err := os.ReadFile(wsFile)
@@ -85,6 +90,29 @@ func (s *VaultService) loadWorkspacesList() {
 		return
 	}
 
+	// Try the structured format first so the previously active workspace can
+	// be restored on a plain `kepler` launch.
+	var cfg workspacesConfig
+	if err := json.Unmarshal(data, &cfg); err == nil && len(cfg.Workspaces) > 0 {
+		seen := make(map[string]bool)
+		for _, ws := range cfg.Workspaces {
+			clean := filepath.Clean(strings.TrimSpace(ws))
+			if clean == "" || clean == "." || seen[clean] {
+				continue
+			}
+			seen[clean] = true
+			s.savedWorkspaces = append(s.savedWorkspaces, clean)
+		}
+		if cfg.Active != "" {
+			cleanActive := filepath.Clean(strings.TrimSpace(cfg.Active))
+			if _, statErr := os.Stat(cleanActive); statErr == nil {
+				s.activePath = cleanActive
+			}
+		}
+		return
+	}
+
+	// Backward compatibility: older versions stored a bare array of strings.
 	var raw []string
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return
@@ -103,7 +131,11 @@ func (s *VaultService) loadWorkspacesList() {
 
 func (s *VaultService) persistWorkspacesList() {
 	wsFile := filepath.Join(s.configDir, "workspaces.json")
-	data, _ := json.MarshalIndent(s.savedWorkspaces, "", "  ")
+	cfg := workspacesConfig{
+		Active:     s.activePath,
+		Workspaces: s.savedWorkspaces,
+	}
+	data, _ := json.MarshalIndent(cfg, "", "  ")
 	_ = os.WriteFile(wsFile, data, 0644)
 }
 
@@ -150,11 +182,11 @@ func (s *VaultService) OpenTerminalPath(targetPath string) string {
 		}
 	}
 	if !found {
-		s.savedWorkspaces = append(s.savedWorkspaces, abs)
-		s.persistWorkspacesList()
+		s.savedWorkspaces = append([]string{abs}, s.savedWorkspaces...)
 	}
 
 	s.activePath = abs
+	s.persistWorkspacesList()
 
 	if s.app != nil {
 		s.app.Event.Emit("workspace:opened", abs)
@@ -194,9 +226,9 @@ func (s *VaultService) ChooseVaultFolder() (string, error) {
 	}
 	if !found {
 		s.savedWorkspaces = append(s.savedWorkspaces, dir)
-		s.persistWorkspacesList()
 	}
 	s.activePath = dir
+	s.persistWorkspacesList()
 	return dir, nil
 }
 
@@ -217,8 +249,8 @@ func (s *VaultService) SwitchWorkspace(dir string) (*VaultScanResult, error) {
 	}
 	if !found {
 		s.savedWorkspaces = append(s.savedWorkspaces, clean)
-		s.persistWorkspacesList()
 	}
+	s.persistWorkspacesList()
 	s.mu.Unlock()
 
 	return s.ScanVault()
@@ -669,6 +701,18 @@ func naturalLess(a, b string) bool {
 	return len(aParts) < len(bParts)
 }
 
+func cleanTitleFormatting(s string) string {
+	s = strings.TrimSpace(s)
+	// Strip leading markdown heading markers (#, ##, ###, ####, etc.)
+	s = regexp.MustCompile(`^#+\s*`).ReplaceAllString(s, "")
+	// Strip bold/italic/code wrapper markers.
+	s = regexp.MustCompile("^(\\*\\*|__|\\*|_|`)").ReplaceAllString(s, "")
+	s = regexp.MustCompile("(\\*\\*|__|\\*|_|`)$").ReplaceAllString(s, "")
+	// Replace markdown links [Title](url) -> Title.
+	s = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`).ReplaceAllString(s, "$1")
+	return strings.TrimSpace(s)
+}
+
 func extractTitle(content string, fileName string, fallbackIndex int) string {
 	lines := strings.Split(content, "\n")
 	for _, l := range lines {
@@ -676,10 +720,10 @@ func extractTitle(content string, fileName string, fallbackIndex int) string {
 		if l == "" || strings.HasPrefix(l, "---") {
 			continue
 		}
-		if strings.HasPrefix(l, "#") {
-			return strings.TrimSpace(strings.TrimLeft(l, "# \t"))
+		title := cleanTitleFormatting(l)
+		if title != "" {
+			return title
 		}
-		return l
 	}
 	clean := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 	clean = regexp.MustCompile(`^[0-9._\-\s]+`).ReplaceAllString(clean, "")
