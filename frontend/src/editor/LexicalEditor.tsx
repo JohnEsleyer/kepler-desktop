@@ -48,6 +48,10 @@ import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
 import { ListItemNode, ListNode, INSERT_UNORDERED_LIST_COMMAND, INSERT_ORDERED_LIST_COMMAND } from '@lexical/list';
 import { CodeHighlightNode, CodeNode, registerCodeHighlighting, $isCodeNode, $createCodeNode } from '@lexical/code';
 import { AutoLinkNode, LinkNode } from '@lexical/link';
+import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
+import { HorizontalRulePlugin } from '@lexical/react/LexicalHorizontalRulePlugin';
+import { TabIndentationPlugin } from '@lexical/react/LexicalTabIndentationPlugin';
+import { HR_TRANSFORMER } from './plugins/HorizontalRuleTransformer';
 import { SlashCommandPlugin } from './plugins/SlashCommandPlugin';
 import { MathPlugin, MathNode, MATH_TRANSFORMER, normalizeMarkdownMath } from './plugins/MathPlugin';
 import 'katex/dist/katex.min.css';
@@ -84,7 +88,7 @@ const CODE_LANGUAGES = [
   { label: 'Markdown', value: 'markdown' },
 ];
 
-const EDITOR_TRANSFORMERS = [...TRANSFORMERS, MATH_TRANSFORMER];
+const EDITOR_TRANSFORMERS = [HR_TRANSFORMER, ...TRANSFORMERS, MATH_TRANSFORMER];
 
 const editorTheme = {
   paragraph: 'editor-paragraph',
@@ -94,10 +98,14 @@ const editorTheme = {
     h3: 'editor-h3',
   },
   list: {
-    ul: 'list-disc ml-6 my-2 text-slate-300',
-    ol: 'list-decimal ml-6 my-2 text-slate-300',
-    listitem: 'my-1',
+    ul: 'editor-ul',
+    ol: 'editor-ol',
+    listitem: 'editor-listitem',
+    nested: {
+      listitem: 'editor-nested-listitem',
+    },
   },
+  hr: 'editor-hr',
   quote: 'editor-quote',
   code: 'editor-code',
   codeHighlight: {
@@ -396,6 +404,8 @@ function EditorBridge({
         <AutoFocusPlugin />
         <ListPlugin />
         <LinkPlugin />
+        <HorizontalRulePlugin />
+        <TabIndentationPlugin />
         <MarkdownShortcutPlugin transformers={EDITOR_TRANSFORMERS} />
         <SlashCommandPlugin defaultCodeLanguage={selectedLang} />
         <MathPlugin />
@@ -420,6 +430,7 @@ export function LexicalMarkdownEditor({ initialContent, onSave, chapterTitle }: 
       TableRowNode,
       AutoLinkNode,
       LinkNode,
+      HorizontalRuleNode,
       MathNode,
     ],
     onError: (error: Error) => console.error(error),

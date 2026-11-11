@@ -15,6 +15,7 @@ import { $createHeadingNode, $createQuoteNode } from '@lexical/rich-text';
 import { $createCodeNode, $isCodeNode } from '@lexical/code';
 import { INSERT_UNORDERED_LIST_COMMAND, INSERT_ORDERED_LIST_COMMAND } from '@lexical/list';
 import { $setBlocksType } from '@lexical/selection';
+import { $createHorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 import {
   Heading1,
   Heading2,
@@ -323,13 +324,13 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
       {
         id: 'divider',
         label: 'Divider',
-        description: 'Visual horizontal line',
-        keywords: 'divider hr line separator',
+        description: 'Visual horizontal rule (---)',
+        keywords: 'divider hr line separator rule',
         icon: <span className="font-mono text-xs">---</span>,
         action: () => {
           const selection = $getSelection();
           if ($isRangeSelection(selection)) {
-            selection.insertText('\n---\n');
+            selection.insertNodes([$createHorizontalRuleNode()]);
           }
         },
       },

@@ -117,13 +117,14 @@ function AppContent() {
       return;
     }
 
+    const lastChapterIndex = Math.max(0, (book.chapters?.length || 1) - 1);
     const newTab: TabItem = {
       id: `tab-${book.meta.id}-${Date.now()}`,
       workspacePath,
       bookId: book.meta.id,
       bookPath: book.path,
       title: book.meta.title,
-      activeChapterIndex: 0,
+      activeChapterIndex: lastChapterIndex,
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);

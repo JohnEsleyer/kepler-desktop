@@ -36,7 +36,14 @@ export const ChapterList: React.FC<ChapterListProps> = ({
           }`}
         >
           <div className="flex items-center gap-2 truncate">
-            <FileText size={14} className={activeIndex === idx ? 'text-indigo-400' : 'text-slate-500'} />
+            <span
+              className={`shrink-0 font-mono text-[10px] w-5 text-right font-semibold ${
+                activeIndex === idx ? 'text-indigo-400' : 'text-slate-500'
+              }`}
+            >
+              {String(idx + 1).padStart(2, '0')}
+            </span>
+            <FileText size={14} className={activeIndex === idx ? 'text-indigo-400 shrink-0' : 'text-slate-500 shrink-0'} />
             <span className="truncate">{ch.title}</span>
           </div>
 
