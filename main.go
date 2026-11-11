@@ -16,7 +16,7 @@ var assets embed.FS
 func main() {
 	vaultService := services.NewVaultService()
 
-	// CLI support: `esper <path>` (or `esper --workspace <path>`).
+	// CLI support: `kepler <path>` (or `kepler --workspace <path>`).
 	// The first non-flag argument is treated as the workspace folder to open.
 	args := os.Args[1:]
 	var targetPath string

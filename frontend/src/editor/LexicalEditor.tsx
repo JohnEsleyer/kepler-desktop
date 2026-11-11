@@ -390,7 +390,7 @@ function EditorBridge({
 
 export function LexicalMarkdownEditor({ initialContent, onSave, chapterTitle }: EditorProps) {
   const initialConfig = {
-    namespace: 'EsperEditor',
+    namespace: 'KeplerEditor',
     theme: editorTheme,
     nodes: [
       HeadingNode,

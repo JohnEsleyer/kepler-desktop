@@ -80,8 +80,16 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
           })}
 
           {workspaces.length === 0 && (
-            <div className="px-2 py-6 text-center text-[11px] text-slate-500">
-              No workspaces yet. Open a folder to get started.
+            <div className="flex flex-col items-center justify-center px-3 py-8 text-center">
+              <FolderPlus size={24} className="mb-2 text-slate-600" />
+              <p className="text-xs font-semibold text-slate-400">No workspaces yet</p>
+              <p className="mt-1 text-[11px] text-slate-500">Open a folder to get started.</p>
+              <button
+                onClick={onOpenNewFolder}
+                className="mt-3 flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-200 transition hover:bg-slate-700"
+              >
+                <FolderPlus size={12} /> Open Folder
+              </button>
             </div>
           )}
         </div>

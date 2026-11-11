@@ -15,6 +15,14 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   onSelect,
   onDelete,
 }) => {
+  if (chapters.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-slate-500">
+        No chapters yet. Click + above to add one.
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
       {chapters.map((ch, idx) => (

@@ -50,31 +50,36 @@ func (s *VaultService) GetActiveVault() string {
 	return s.activePath
 }
 
+func samePath(a, b string) bool {
+	cleanA := filepath.Clean(strings.TrimSpace(a))
+	cleanB := filepath.Clean(strings.TrimSpace(b))
+	if cleanA == cleanB {
+		return true
+	}
+	return strings.EqualFold(cleanA, cleanB)
+}
+
 func (s *VaultService) initDefaultVault() {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		configDir = os.TempDir()
 	}
-	s.configDir = filepath.Join(configDir, "EsperApp")
+	s.configDir = filepath.Join(configDir, "Kepler")
 	_ = os.MkdirAll(s.configDir, 0755)
+
+	// Migrate legacy EsperApp workspaces.json if it exists and Kepler's doesn't
+	oldWsFile := filepath.Join(configDir, "EsperApp", "workspaces.json")
+	newWsFile := filepath.Join(s.configDir, "workspaces.json")
+	if _, err := os.Stat(newWsFile); os.IsNotExist(err) {
+		if data, err := os.ReadFile(oldWsFile); err == nil {
+			_ = os.WriteFile(newWsFile, data, 0644)
+		}
+	}
 
 	s.loadWorkspacesList()
 
-	defaultPath := filepath.Join(s.configDir, "EsperVault")
-	_ = os.MkdirAll(defaultPath, 0755)
-
-	if len(s.savedWorkspaces) == 0 {
-		s.savedWorkspaces = append(s.savedWorkspaces, defaultPath)
-		s.persistWorkspacesList()
-	}
-
-	if s.activePath == "" {
+	if s.activePath == "" && len(s.savedWorkspaces) > 0 {
 		s.activePath = s.savedWorkspaces[0]
-	}
-
-	// Seed the built-in vault only when it is completely empty.
-	if entries, err := os.ReadDir(defaultPath); err == nil && len(entries) == 0 {
-		s.seedDefaultBooks(defaultPath)
 	}
 }
 
@@ -97,7 +102,7 @@ func (s *VaultService) loadWorkspacesList() {
 		seen := make(map[string]bool)
 		for _, ws := range cfg.Workspaces {
 			clean := filepath.Clean(strings.TrimSpace(ws))
-			if clean == "" || clean == "." || seen[clean] {
+			if clean == "" || clean == "." || seen[clean] || strings.Contains(clean, "EsperVault") {
 				continue
 			}
 			seen[clean] = true
@@ -121,7 +126,7 @@ func (s *VaultService) loadWorkspacesList() {
 	seen := make(map[string]bool)
 	for _, ws := range raw {
 		clean := filepath.Clean(strings.TrimSpace(ws))
-		if clean == "" || clean == "." || seen[clean] {
+		if clean == "" || clean == "." || seen[clean] || strings.Contains(clean, "EsperVault") {
 			continue
 		}
 		seen[clean] = true
@@ -204,7 +209,7 @@ func (s *VaultService) ChooseVaultFolder() (string, error) {
 	}
 
 	dialog := app.Dialog.OpenFile().
-		SetTitle("Select Esper Workspace Folder").
+		SetTitle("Select Kepler Workspace Folder").
 		CanChooseDirectories(true).
 		CanChooseFiles(false)
 
@@ -219,7 +224,7 @@ func (s *VaultService) ChooseVaultFolder() (string, error) {
 	dir = filepath.Clean(dir)
 	found := false
 	for _, ws := range s.savedWorkspaces {
-		if filepath.Clean(ws) == dir {
+		if samePath(ws, dir) {
 			found = true
 			break
 		}
@@ -242,7 +247,7 @@ func (s *VaultService) SwitchWorkspace(dir string) (*VaultScanResult, error) {
 	s.activePath = clean
 	found := false
 	for _, ws := range s.savedWorkspaces {
-		if filepath.Clean(ws) == clean {
+		if samePath(ws, clean) {
 			found = true
 			break
 		}
@@ -261,24 +266,20 @@ func (s *VaultService) CloseWorkspace(dir string) (*VaultScanResult, error) {
 	cleanTarget := filepath.Clean(dir)
 	filtered := make([]string, 0, len(s.savedWorkspaces))
 	for _, ws := range s.savedWorkspaces {
-		if filepath.Clean(ws) != cleanTarget {
+		if !samePath(ws, cleanTarget) {
 			filtered = append(filtered, ws)
 		}
 	}
 	s.savedWorkspaces = filtered
-	s.persistWorkspacesList()
 
-	if filepath.Clean(s.activePath) == cleanTarget {
+	if samePath(s.activePath, cleanTarget) {
 		if len(s.savedWorkspaces) > 0 {
 			s.activePath = s.savedWorkspaces[0]
 		} else {
-			defaultPath := filepath.Join(s.configDir, "EsperVault")
-			_ = os.MkdirAll(defaultPath, 0755)
-			s.savedWorkspaces = []string{defaultPath}
-			s.activePath = defaultPath
-			s.persistWorkspacesList()
+			s.activePath = ""
 		}
 	}
+	s.persistWorkspacesList()
 	s.mu.Unlock()
 
 	return s.ScanVault()
@@ -290,9 +291,43 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 	workspaces := append([]string{}, s.savedWorkspaces...)
 	s.mu.RUnlock()
 
+	wsEntries := make([]WorkspaceEntry, 0, len(workspaces))
+	for _, ws := range workspaces {
+		clean := filepath.Clean(ws)
+		count := 0
+		if subDirs, e := os.ReadDir(clean); e == nil {
+			for _, sub := range subDirs {
+				if sub.IsDir() && !strings.HasPrefix(sub.Name(), ".") {
+					count++
+				}
+			}
+		}
+		wsEntries = append(wsEntries, WorkspaceEntry{
+			Path:      clean,
+			Name:      filepath.Base(clean),
+			BookCount: count,
+		})
+	}
+
+	if vaultRoot == "" {
+		return &VaultScanResult{
+			VaultPath:       "",
+			Books:           []Book{},
+			Tags:            []string{},
+			Workspaces:      wsEntries,
+			ActiveWorkspace: "",
+		}, nil
+	}
+
 	dirEntries, err := os.ReadDir(vaultRoot)
 	if err != nil {
-		return nil, err
+		return &VaultScanResult{
+			VaultPath:       vaultRoot,
+			Books:           []Book{},
+			Tags:            []string{},
+			Workspaces:      wsEntries,
+			ActiveWorkspace: vaultRoot,
+		}, nil
 	}
 
 	books := []Book{}
@@ -441,23 +476,6 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 		tagsList = append(tagsList, t)
 	}
 	sort.Strings(tagsList)
-
-	wsEntries := make([]WorkspaceEntry, 0, len(workspaces))
-	for _, ws := range workspaces {
-		count := 0
-		if subDirs, e := os.ReadDir(ws); e == nil {
-			for _, sub := range subDirs {
-				if sub.IsDir() && !strings.HasPrefix(sub.Name(), ".") {
-					count++
-				}
-			}
-		}
-		wsEntries = append(wsEntries, WorkspaceEntry{
-			Path:      ws,
-			Name:      filepath.Base(ws),
-			BookCount: count,
-		})
-	}
 
 	return &VaultScanResult{
 		VaultPath:       vaultRoot,
@@ -613,7 +631,7 @@ func (s *VaultService) ExportVaultZip() (string, error) {
 	s.mu.RUnlock()
 
 	home, _ := os.UserHomeDir()
-	outPath := filepath.Join(home, "Downloads", fmt.Sprintf("esper-vault-%d.zip", time.Now().Unix()))
+	outPath := filepath.Join(home, "Downloads", fmt.Sprintf("kepler-workspace-%d.zip", time.Now().Unix()))
 	_ = os.MkdirAll(filepath.Dir(outPath), 0755)
 
 	zipFile, err := os.Create(outPath)

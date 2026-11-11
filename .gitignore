@@ -15,3 +15,6 @@ codebase.txt
 
 # _dev
 _dev
+
+# Kepler workspace artifacts (written into any opened workspace folder)
+book.json
