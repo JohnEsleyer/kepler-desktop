@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { VaultAPI } from './services/vaultBridge';
 import { Book, VaultScanResult, TabItem } from './types/vault';
 import { Bookshelf } from './components/Bookshelf';
@@ -6,6 +6,7 @@ import { Workspace } from './components/Workspace';
 import { WorkspaceSidebar } from './components/navigation/WorkspaceSidebar';
 import { UniversalTabBar } from './components/navigation/UniversalTabBar';
 import { BookSettingsModal } from './components/modals/BookSettingsModal';
+import { WorkspaceSettingsModal } from './components/modals/WorkspaceSettingsModal';
 import { DialogProvider, useDialog } from './components/ui/CustomUI';
 
 function AppContent() {
@@ -22,9 +23,10 @@ function AppContent() {
   // active in the sidebar.
   const [bookCache, setBookCache] = useState<Record<string, Book>>({});
 
-  // Book Settings Modal
+  // Book Settings Modal & Global Workspace Settings Modal
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState<boolean>(false);
 
   const mergeBooksIntoCache = (books: Book[]) => {
     setBookCache((prev) => {
@@ -216,10 +218,18 @@ function AppContent() {
 
   if (loading && !scanResult) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#030712]">
-        <div className="flex flex-col items-center gap-3 text-sm text-slate-400">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-indigo-500" />
-          Scanning Kepler workspaces...
+      <div className="flex h-screen w-screen flex-col bg-[#030712]">
+        <div className="h-10 w-full border-b border-slate-800/80 bg-[#050811] animate-pulse" />
+        <div className="flex flex-1">
+          <div className="w-64 border-r border-slate-800/80 bg-[#060913] animate-pulse" />
+          <div className="flex-1">
+            <div className="h-14 border-b border-slate-800/80 bg-[#070b14] animate-pulse" />
+            <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 p-8">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="animate-pulse rounded-2xl bg-slate-900/40" style={{ aspectRatio: '1 / 1.48' }} />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -227,7 +237,7 @@ function AppContent() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#030712] text-slate-100">
-      {/* Universal Tab Bar on top */}
+      {/* Universal Tab Bar on top with Global Workspace Settings Button */}
       <UniversalTabBar
         tabs={tabs}
         activeTabId={activeTabId}
@@ -236,6 +246,7 @@ function AppContent() {
         onCloseAllTabs={handleClearAllTabs}
         onHomeClick={() => setActiveTabId(null)}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        onOpenWorkspaceSettings={() => setIsWorkspaceSettingsOpen(true)}
         isSidebarOpen={isSidebarOpen}
       />
 
@@ -271,6 +282,7 @@ function AppContent() {
               vaultPath={scanResult?.vaultPath || ''}
               books={scanResult?.books || []}
               tags={scanResult?.tags || []}
+              isLoading={loading}
               onOpenBook={handleOpenBook}
               onEditBook={(book) => {
                 setEditingBook(book);
@@ -306,6 +318,7 @@ function AppContent() {
       <BookSettingsModal
         isOpen={isSettingsOpen}
         initialMeta={editingBook?.meta}
+        bookPath={editingBook?.path}
         onClose={() => {
           setIsSettingsOpen(false);
           setEditingBook(null);
@@ -324,6 +337,14 @@ function AppContent() {
           }
         }}
         onSave={handleSaveBookSettings}
+      />
+
+      {/* Universal Workspace-wide Settings Modal */}
+      <WorkspaceSettingsModal
+        isOpen={isWorkspaceSettingsOpen}
+        workspacePath={scanResult?.vaultPath || ''}
+        onClose={() => setIsWorkspaceSettingsOpen(false)}
+        onRefreshWorkspace={loadVault}
       />
     </div>
   );

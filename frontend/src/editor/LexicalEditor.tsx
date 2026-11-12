@@ -40,6 +40,8 @@ import {
   FORMAT_TEXT_COMMAND,
   $getSelection,
   $isRangeSelection,
+  $createTextNode,
+  TextNode,
 } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { HeadingNode, QuoteNode, $createHeadingNode, $createQuoteNode } from '@lexical/rich-text';
@@ -54,6 +56,10 @@ import { TabIndentationPlugin } from '@lexical/react/LexicalTabIndentationPlugin
 import { HR_TRANSFORMER } from './plugins/HorizontalRuleTransformer';
 import { SlashCommandPlugin } from './plugins/SlashCommandPlugin';
 import { MathPlugin, MathNode, MATH_TRANSFORMER, normalizeMarkdownMath } from './plugins/MathPlugin';
+import { PageNode, $createPageNode } from './blocks/page/PageNode';
+import { PAGE_TRANSFORMER, PAGE_RE } from './blocks/page/PageTransformer';
+import { PasteMarkdownPlugin } from './plugins/PasteMarkdownPlugin';
+import { RawInlineCodePlugin } from './plugins/RawInlineCodePlugin';
 import 'katex/dist/katex.min.css';
 import { CustomSelect } from '../components/ui/CustomUI';
 import {
@@ -88,7 +94,8 @@ const CODE_LANGUAGES = [
   { label: 'Markdown', value: 'markdown' },
 ];
 
-const EDITOR_TRANSFORMERS = [HR_TRANSFORMER, ...TRANSFORMERS, MATH_TRANSFORMER];
+// PAGE_TRANSFORMER must precede TRANSFORMERS so standard LINK_TRANSFORMER does not hijack kepler-page://
+const EDITOR_TRANSFORMERS = [PAGE_TRANSFORMER, HR_TRANSFORMER, MATH_TRANSFORMER, ...TRANSFORMERS];
 
 const editorTheme = {
   paragraph: 'editor-paragraph',
@@ -252,6 +259,61 @@ function EditorBridge({
     };
   }, [editor]);
 
+  // Transform LinkNode or TextNode containing kepler-page:// into PageNode
+  useEffect(() => {
+    const removeLinkTransform = editor.registerNodeTransform(LinkNode, (linkNode) => {
+      const url = linkNode.getURL();
+      if (url && url.startsWith('kepler-page://')) {
+        const subpageId = url.replace('kepler-page://', '');
+        const title = linkNode.getTextContent() || 'Untitled Page';
+        const pageNode = $createPageNode(subpageId, title);
+        linkNode.replace(pageNode);
+      }
+    });
+
+    const removeTextTransform = editor.registerNodeTransform(TextNode, (textNode) => {
+      const text = textNode.getTextContent();
+      const match = PAGE_RE.exec(text);
+      if (match && match.index !== undefined) {
+        const full = match[0];
+        const title = match[1];
+        const subpageId = match[2];
+        const before = text.slice(0, match.index);
+        const after = text.slice(match.index + full.length);
+
+        if (before) textNode.insertBefore($createTextNode(before));
+        textNode.insertBefore($createPageNode(subpageId, title));
+        if (after) textNode.insertBefore($createTextNode(after));
+        textNode.remove();
+      }
+    });
+
+    return () => {
+      removeLinkTransform();
+      removeTextTransform();
+    };
+  }, [editor]);
+
+  // Listen for direct subpage insertion command from Slash menu
+  useEffect(() => {
+    const handleInsertPageNode = (e: Event) => {
+      const ce = e as CustomEvent<{ subpageId: string; title: string }>;
+      const { subpageId, title } = ce.detail;
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          const pageNode = $createPageNode(subpageId, title);
+          selection.insertNodes([pageNode, $createTextNode(' ')]);
+        }
+      });
+    };
+
+    window.addEventListener('kepler:insert-page-node', handleInsertPageNode);
+    return () => {
+      window.removeEventListener('kepler:insert-page-node', handleInsertPageNode);
+    };
+  }, [editor]);
+
   const applyCodeLanguage = (lang: string) => {
     setSelectedLang(lang);
     editor.update(() => {
@@ -409,6 +471,8 @@ function EditorBridge({
         <MarkdownShortcutPlugin transformers={EDITOR_TRANSFORMERS} />
         <SlashCommandPlugin defaultCodeLanguage={selectedLang} />
         <MathPlugin />
+        <PasteMarkdownPlugin transformers={EDITOR_TRANSFORMERS} />
+        <RawInlineCodePlugin />
       </div>
     </div>
   );
@@ -432,6 +496,7 @@ export function LexicalMarkdownEditor({ initialContent, onSave, chapterTitle }: 
       LinkNode,
       HorizontalRuleNode,
       MathNode,
+      PageNode,
     ],
     onError: (error: Error) => console.error(error),
   };

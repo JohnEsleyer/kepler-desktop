@@ -22,6 +22,14 @@ type Chapter struct {
 	Position int    `json:"position"`
 }
 
+type Subpage struct {
+	ID       string `json:"id"`
+	BookID   string `json:"bookId"`
+	FileName string `json:"fileName"`
+	Title    string `json:"title"`
+	Content  string `json:"content"`
+}
+
 type Question struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
@@ -41,6 +49,7 @@ type Book struct {
 	Meta      BookMeta   `json:"meta"`
 	Path      string     `json:"path"`
 	Chapters  []Chapter  `json:"chapters"`
+	Subpages  []Subpage  `json:"subpages"`
 	Questions []Question `json:"questions"`
 	Visuals   []Visual   `json:"visuals"`
 }

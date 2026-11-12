@@ -84,8 +84,8 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     <DialogContext.Provider value={{ showAlert, showConfirm, showPrompt }}>
       {children}
       {dialogState?.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-700/80 bg-[#070b14] shadow-2xl shadow-indigo-950/40">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-700/80 bg-[#070b14] shadow-2xl shadow-indigo-950/60 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 {dialogState.type === 'alert' && <AlertCircle size={18} className="text-indigo-400" />}
@@ -302,5 +302,48 @@ export const SearchInput: React.FC<{
         <X size={13} />
       </button>
     )}
+  </div>
+);
+
+// Skeleton Loading Components for books, chapters, and content
+export const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`animate-pulse rounded-lg bg-slate-800/60 ${className}`} />
+);
+
+export const BookshelfSkeleton: React.FC = () => (
+  <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 p-8">
+    {Array.from({ length: 8 }).map((_, i) => (
+      <div
+        key={i}
+        className="flex flex-col justify-between rounded-2xl border border-slate-800/60 bg-slate-900/30 p-4"
+        style={{ aspectRatio: '1 / 1.48' }}
+      >
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-4 w-12 rounded" />
+          <Skeleton className="h-5 w-5 rounded-full" />
+        </div>
+        <div className="mt-auto space-y-2">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-3 w-1/2" />
+          <div className="flex gap-1 pt-2">
+            <Skeleton className="h-3 w-8" />
+            <Skeleton className="h-3 w-10" />
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+export const EditorSkeleton: React.FC = () => (
+  <div className="flex h-full w-full flex-col p-8 space-y-5">
+    <Skeleton className="h-9 w-2/5" />
+    <Skeleton className="h-4 w-4/5" />
+    <Skeleton className="h-4 w-3/4" />
+    <Skeleton className="h-4 w-2/3" />
+    <div className="pt-4 space-y-3">
+      <Skeleton className="h-28 w-full rounded-xl" />
+      <Skeleton className="h-4 w-1/2" />
+    </div>
   </div>
 );

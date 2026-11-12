@@ -29,12 +29,20 @@ export function CreateChapter(bookPath: string, title: string): $CancellableProm
     return $Call.ByID(2781365950, bookPath, title);
 }
 
+export function CreateSubpage(bookPath: string, initialTitle: string): $CancellablePromise<$models.Subpage> {
+    return $Call.ByID(1096248954, bookPath, initialTitle);
+}
+
 export function DeleteBook(bookPath: string): $CancellablePromise<void> {
     return $Call.ByID(3231701331, bookPath);
 }
 
 export function DeleteChapter(bookPath: string, fileName: string): $CancellablePromise<void> {
     return $Call.ByID(1491419135, bookPath, fileName);
+}
+
+export function DeleteSubpage(bookPath: string, subpageID: string): $CancellablePromise<void> {
+    return $Call.ByID(75449735, bookPath, subpageID);
 }
 
 export function DeleteVisual(bookPath: string, fileName: string): $CancellablePromise<void> {
@@ -49,8 +57,16 @@ export function GetActiveVault(): $CancellablePromise<string> {
     return $Call.ByID(2747271455);
 }
 
+export function GetSubpage(bookPath: string, subpageID: string): $CancellablePromise<$models.Subpage> {
+    return $Call.ByID(3033254676, bookPath, subpageID);
+}
+
 export function OpenTerminalPath(targetPath: string): $CancellablePromise<string> {
     return $Call.ByID(1134889962, targetPath);
+}
+
+export function ReorderChapters(bookPath: string, fileNames: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(1887055030, bookPath, fileNames);
 }
 
 export function SaveChapter(bookPath: string, fileName: string, content: string): $CancellablePromise<void> {
@@ -61,12 +77,24 @@ export function SaveQuestions(bookPath: string, questionsJSON: string): $Cancell
     return $Call.ByID(1386222585, bookPath, questionsJSON);
 }
 
+export function SaveSubpage(bookPath: string, subpageID: string, content: string): $CancellablePromise<void> {
+    return $Call.ByID(507830725, bookPath, subpageID, content);
+}
+
 export function SaveVisual(bookPath: string, fileName: string, content: string): $CancellablePromise<void> {
     return $Call.ByID(1595835216, bookPath, fileName, content);
 }
 
+export function ScanOrphanSubpages(bookPath: string): $CancellablePromise<$models.Subpage[] | null> {
+    return $Call.ByID(1168499528, bookPath);
+}
+
 export function ScanVault(): $CancellablePromise<$models.VaultScanResult | null> {
     return $Call.ByID(3489769152);
+}
+
+export function ScanWorkspaceOrphans(): $CancellablePromise<$models.OrphanSubpageResult[] | null> {
+    return $Call.ByID(2994120092);
 }
 
 export function SetApp(app: application$0.App | null): $CancellablePromise<void> {

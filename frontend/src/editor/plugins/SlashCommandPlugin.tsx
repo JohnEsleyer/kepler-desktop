@@ -26,6 +26,7 @@ import {
   ListOrdered,
   Calculator,
   Sigma,
+  FileText,
 } from 'lucide-react';
 import { $createMathNode } from './MathPlugin';
 
@@ -84,6 +85,16 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
           if ($isRangeSelection(selection)) {
             $setBlocksType(selection, () => $createHeadingNode('h3'));
           }
+        },
+      },
+      {
+        id: 'page',
+        label: 'Subpage (/page)',
+        description: 'Embed a Notion-style subpage inside this chapter',
+        keywords: 'page subpage document notion child link',
+        icon: <FileText size={15} className="text-indigo-400" />,
+        action: () => {
+          window.dispatchEvent(new CustomEvent('kepler:create-subpage-trigger'));
         },
       },
       {

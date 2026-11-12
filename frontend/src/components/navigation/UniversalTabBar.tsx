@@ -1,6 +1,6 @@
 import React from 'react';
 import { TabItem } from '../../types/vault';
-import { BookOpen, X, Home, PanelLeft, Layers } from 'lucide-react';
+import { BookOpen, X, Home, PanelLeft, Layers, Settings } from 'lucide-react';
 
 interface UniversalTabBarProps {
   tabs: TabItem[];
@@ -10,6 +10,7 @@ interface UniversalTabBarProps {
   onCloseAllTabs: () => void;
   onHomeClick: () => void;
   onToggleSidebar: () => void;
+  onOpenWorkspaceSettings?: () => void;
   isSidebarOpen: boolean;
 }
 
@@ -21,6 +22,7 @@ export const UniversalTabBar: React.FC<UniversalTabBarProps> = ({
   onCloseAllTabs,
   onHomeClick,
   onToggleSidebar,
+  onOpenWorkspaceSettings,
   isSidebarOpen,
 }) => {
   return (
@@ -82,17 +84,28 @@ export const UniversalTabBar: React.FC<UniversalTabBarProps> = ({
         </div>
       </div>
 
-      {/* Clear All Tabs Action */}
-      {tabs.length > 0 && (
-        <button
-          onClick={onCloseAllTabs}
-          className="ml-2 flex shrink-0 items-center gap-1 rounded-lg border border-slate-800/80 bg-slate-900/60 px-2 py-1 text-[11px] font-medium text-slate-400 transition hover:border-rose-900/40 hover:bg-rose-950/30 hover:text-rose-300"
-          title="Clear all open tabs"
-        >
-          <Layers size={12} className="opacity-70" />
-          <span>Clear Tabs</span>
-        </button>
-      )}
+      <div className="flex items-center gap-1 ml-2">
+        {tabs.length > 0 && (
+          <button
+            onClick={onCloseAllTabs}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-800/80 bg-slate-900/60 px-2 py-1 text-[11px] font-medium text-slate-400 transition hover:border-rose-900/40 hover:bg-rose-950/30 hover:text-rose-300"
+            title="Clear all open tabs"
+          >
+            <Layers size={12} className="opacity-70" />
+            <span>Clear Tabs</span>
+          </button>
+        )}
+
+        {onOpenWorkspaceSettings && (
+          <button
+            onClick={onOpenWorkspaceSettings}
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+            title="Workspace Settings & Subpages Integrity"
+          >
+            <Settings size={14} />
+          </button>
+        )}
+      </div>
     </div>
   );
 };

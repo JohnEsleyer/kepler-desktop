@@ -1,40 +1,54 @@
 import { BookMeta, VaultScanResult } from '../types/vault';
-
-// Auto-generated Wails v3 bindings. They are regenerated during the build with
-// `wails3 generate bindings`; using the bindings (instead of hand-written
-// Call.ByName strings) keeps the frontend and Go service signatures in sync.
-import * as VaultService from '../../bindings/changeme/services/vaultservice';
+import { Call } from '@wailsio/runtime';
 
 export const VaultAPI = {
   scanVault: async (): Promise<VaultScanResult> => {
-    const res = await VaultService.ScanVault();
-    return res as unknown as VaultScanResult;
+    return (await Call.ByName('changeme/services.VaultService.ScanVault')) as VaultScanResult;
   },
   getActiveVault: async (): Promise<string> => {
-    return await VaultService.GetActiveVault();
+    return (await Call.ByName('changeme/services.VaultService.GetActiveVault')) as string;
   },
   chooseVaultFolder: async (): Promise<string> => {
-    return await VaultService.ChooseVaultFolder();
+    return (await Call.ByName('changeme/services.VaultService.ChooseVaultFolder')) as string;
   },
   openTerminalPath: async (path: string): Promise<string> => {
-    return await VaultService.OpenTerminalPath(path);
+    return (await Call.ByName('changeme/services.VaultService.OpenTerminalPath', path)) as string;
   },
   switchWorkspace: async (path: string): Promise<VaultScanResult> => {
-    const res = await VaultService.SwitchWorkspace(path);
-    return res as unknown as VaultScanResult;
+    return (await Call.ByName('changeme/services.VaultService.SwitchWorkspace', path)) as VaultScanResult;
   },
   closeWorkspace: async (path: string): Promise<VaultScanResult> => {
-    const res = await VaultService.CloseWorkspace(path);
-    return res as unknown as VaultScanResult;
+    return (await Call.ByName('changeme/services.VaultService.CloseWorkspace', path)) as VaultScanResult;
   },
   saveChapter: async (bookPath: string, fileName: string, content: string): Promise<void> => {
-    await VaultService.SaveChapter(bookPath, fileName, content);
+    await Call.ByName('changeme/services.VaultService.SaveChapter', bookPath, fileName, content);
   },
   createChapter: async (bookPath: string, title: string): Promise<string> => {
-    return await VaultService.CreateChapter(bookPath, title);
+    return (await Call.ByName('changeme/services.VaultService.CreateChapter', bookPath, title)) as string;
   },
   deleteChapter: async (bookPath: string, fileName: string): Promise<void> => {
-    await VaultService.DeleteChapter(bookPath, fileName);
+    await Call.ByName('changeme/services.VaultService.DeleteChapter', bookPath, fileName);
+  },
+  reorderChapters: async (bookPath: string, fileNames: string[]): Promise<void> => {
+    await Call.ByName('changeme/services.VaultService.ReorderChapters', bookPath, fileNames);
+  },
+  createSubpage: async (bookPath: string, initialTitle: string): Promise<any> => {
+    return await Call.ByName('changeme/services.VaultService.CreateSubpage', bookPath, initialTitle);
+  },
+  saveSubpage: async (bookPath: string, subpageID: string, content: string): Promise<void> => {
+    await Call.ByName('changeme/services.VaultService.SaveSubpage', bookPath, subpageID, content);
+  },
+  getSubpage: async (bookPath: string, subpageID: string): Promise<any> => {
+    return await Call.ByName('changeme/services.VaultService.GetSubpage', bookPath, subpageID);
+  },
+  deleteSubpage: async (bookPath: string, subpageID: string): Promise<void> => {
+    await Call.ByName('changeme/services.VaultService.DeleteSubpage', bookPath, subpageID);
+  },
+  scanOrphanSubpages: async (bookPath: string): Promise<any[]> => {
+    return (await Call.ByName('changeme/services.VaultService.ScanOrphanSubpages', bookPath)) as any[];
+  },
+  scanWorkspaceOrphans: async (): Promise<any[]> => {
+    return (await Call.ByName('changeme/services.VaultService.ScanWorkspaceOrphans')) as any[];
   },
   createBook: async (
     title: string,
@@ -44,24 +58,32 @@ export const VaultAPI = {
     showTitleOnCover: boolean,
     coverDataUri: string
   ): Promise<string> => {
-    return await VaultService.CreateBook(title, desc, tags, preset, showTitleOnCover, coverDataUri);
+    return (await Call.ByName(
+      'changeme/services.VaultService.CreateBook',
+      title,
+      desc,
+      tags,
+      preset,
+      showTitleOnCover,
+      coverDataUri
+    )) as string;
   },
   updateBookMeta: async (bookPath: string, meta: BookMeta): Promise<void> => {
-    await VaultService.UpdateBookMeta(bookPath, meta as unknown as Parameters<typeof VaultService.UpdateBookMeta>[1]);
+    await Call.ByName('changeme/services.VaultService.UpdateBookMeta', bookPath, meta);
   },
   deleteBook: async (bookPath: string): Promise<void> => {
-    await VaultService.DeleteBook(bookPath);
+    await Call.ByName('changeme/services.VaultService.DeleteBook', bookPath);
   },
   saveQuestions: async (bookPath: string, questionsJson: string): Promise<void> => {
-    await VaultService.SaveQuestions(bookPath, questionsJson);
+    await Call.ByName('changeme/services.VaultService.SaveQuestions', bookPath, questionsJson);
   },
   saveVisual: async (bookPath: string, fileName: string, content: string): Promise<void> => {
-    await VaultService.SaveVisual(bookPath, fileName, content);
+    await Call.ByName('changeme/services.VaultService.SaveVisual', bookPath, fileName, content);
   },
   deleteVisual: async (bookPath: string, fileName: string): Promise<void> => {
-    await VaultService.DeleteVisual(bookPath, fileName);
+    await Call.ByName('changeme/services.VaultService.DeleteVisual', bookPath, fileName);
   },
   exportVaultZip: async (): Promise<string> => {
-    return await VaultService.ExportVaultZip();
+    return (await Call.ByName('changeme/services.VaultService.ExportVaultZip')) as string;
   },
 };

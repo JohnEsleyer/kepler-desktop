@@ -20,6 +20,14 @@ export interface Chapter {
   position: number;
 }
 
+export interface Subpage {
+  id: string;
+  bookId: string;
+  fileName: string;
+  title: string;
+  content: string;
+}
+
 export interface Question {
   id: string;
   title: string;
@@ -39,6 +47,7 @@ export interface Book {
   meta: BookMeta;
   path: string;
   chapters: Chapter[];
+  subpages?: Subpage[];
   questions: Question[];
   visuals: Visual[];
 }

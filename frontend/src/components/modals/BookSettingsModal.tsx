@@ -6,6 +6,7 @@ import { CustomToggle, CustomInput, CustomTextarea, useDialog } from '../ui/Cust
 
 interface BookSettingsModalProps {
   initialMeta?: Partial<BookMeta>;
+  bookPath?: string;
   isOpen: boolean;
   onClose: () => void;
   onDelete?: () => void;

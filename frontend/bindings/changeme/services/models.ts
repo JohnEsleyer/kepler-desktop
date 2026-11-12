@@ -5,6 +5,7 @@ export interface Book {
     "meta": BookMeta;
     "path": string;
     "chapters": Chapter[] | null;
+    "subpages": Subpage[] | null;
     "questions": Question[] | null;
     "visuals": Visual[] | null;
 }
@@ -35,11 +36,25 @@ export interface Chapter {
     "position": number;
 }
 
+export interface OrphanSubpageResult {
+    "bookTitle": string;
+    "bookPath": string;
+    "subpage": Subpage;
+}
+
 export interface Question {
     "id": string;
     "title": string;
     "answer": string;
     "position": number;
+}
+
+export interface Subpage {
+    "id": string;
+    "bookId": string;
+    "fileName": string;
+    "title": string;
+    "content": string;
 }
 
 export interface VaultScanResult {

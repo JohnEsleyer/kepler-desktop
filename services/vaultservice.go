@@ -1,5 +1,3 @@
-// File: services/vaultservice.go
-
 package services
 
 import (
@@ -67,7 +65,6 @@ func (s *VaultService) initDefaultVault() {
 	s.configDir = filepath.Join(configDir, "Kepler")
 	_ = os.MkdirAll(s.configDir, 0755)
 
-	// Migrate legacy EsperApp workspaces.json if it exists and Kepler's doesn't
 	oldWsFile := filepath.Join(configDir, "EsperApp", "workspaces.json")
 	newWsFile := filepath.Join(s.configDir, "workspaces.json")
 	if _, err := os.Stat(newWsFile); os.IsNotExist(err) {
@@ -95,8 +92,6 @@ func (s *VaultService) loadWorkspacesList() {
 		return
 	}
 
-	// Try the structured format first so the previously active workspace can
-	// be restored on a plain `kepler` launch.
 	var cfg workspacesConfig
 	if err := json.Unmarshal(data, &cfg); err == nil && len(cfg.Workspaces) > 0 {
 		seen := make(map[string]bool)
@@ -117,7 +112,6 @@ func (s *VaultService) loadWorkspacesList() {
 		return
 	}
 
-	// Backward compatibility: older versions stored a bare array of strings.
 	var raw []string
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return
@@ -390,10 +384,32 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			}
 		}
 
-		// Read Chapters (*.md)
-		files, _ := os.ReadDir(bookDir)
+		chaptersDir := filepath.Join(bookDir, "chapters")
+		subpagesDir := filepath.Join(bookDir, "subpages")
+		visualsDir := filepath.Join(bookDir, "visuals")
+		_ = os.MkdirAll(chaptersDir, 0755)
+		_ = os.MkdirAll(subpagesDir, 0755)
+		_ = os.MkdirAll(visualsDir, 0755)
+
+		chEntries, _ := os.ReadDir(chaptersDir)
+		chSourceDir := chaptersDir
+		if len(chEntries) == 0 {
+			rootMd, _ := os.ReadDir(bookDir)
+			hasRootMd := false
+			for _, r := range rootMd {
+				if !r.IsDir() && strings.HasSuffix(strings.ToLower(r.Name()), ".md") {
+					hasRootMd = true
+					break
+				}
+			}
+			if hasRootMd {
+				chSourceDir = bookDir
+				chEntries = rootMd
+			}
+		}
+
 		mdNames := []string{}
-		for _, f := range files {
+		for _, f := range chEntries {
 			if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ".md") {
 				mdNames = append(mdNames, f.Name())
 			}
@@ -404,16 +420,34 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 
 		chapters := []Chapter{}
 		for idx, fn := range mdNames {
-			content, _ := os.ReadFile(filepath.Join(bookDir, fn))
+			content, _ := os.ReadFile(filepath.Join(chSourceDir, fn))
 			strContent := string(content)
+			idPart := strings.TrimSuffix(fn, ".md")
 			chapters = append(chapters, Chapter{
-				ID:       fmt.Sprintf("p-%s-%s", meta.ID, fn),
+				ID:       fmt.Sprintf("ch-%s-%s", meta.ID, idPart),
 				BookID:   meta.ID,
 				FileName: fn,
 				Title:    extractTitle(strContent, fn, idx),
 				Content:  strContent,
 				Position: idx,
 			})
+		}
+
+		subpages := []Subpage{}
+		spEntries, _ := os.ReadDir(subpagesDir)
+		for _, sf := range spEntries {
+			if !sf.IsDir() && strings.HasSuffix(strings.ToLower(sf.Name()), ".md") {
+				content, _ := os.ReadFile(filepath.Join(subpagesDir, sf.Name()))
+				strContent := string(content)
+				spID := strings.TrimSuffix(sf.Name(), ".md")
+				subpages = append(subpages, Subpage{
+					ID:       spID,
+					BookID:   filepath.Base(bookDir),
+					FileName: sf.Name(),
+					Title:    extractTitle(strContent, sf.Name(), 0),
+					Content:  strContent,
+				})
+			}
 		}
 
 		questions := []Question{}
@@ -423,7 +457,7 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 		}
 
 		visuals := []Visual{}
-		visEntries, _ := os.ReadDir(filepath.Join(bookDir, "visuals"))
+		visEntries, _ := os.ReadDir(visualsDir)
 		for _, vf := range visEntries {
 			if vf.IsDir() {
 				continue
@@ -433,7 +467,7 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			if strings.HasSuffix(lower, ".json") {
 				kind = "json"
 			}
-			content, _ := os.ReadFile(filepath.Join(bookDir, "visuals", vf.Name()))
+			content, _ := os.ReadFile(filepath.Join(visualsDir, vf.Name()))
 			assigned := 1
 			matches := regexp.MustCompile(`^0*(\d+)`).FindStringSubmatch(vf.Name())
 			if len(matches) > 1 {
@@ -461,12 +495,12 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			Meta:      meta,
 			Path:      bookDir,
 			Chapters:  chapters,
+			Subpages:  subpages,
 			Questions: questions,
 			Visuals:   visuals,
 		})
 	}
 
-	// Sort notebooks by latest created to oldest
 	sort.SliceStable(books, func(i, j int) bool {
 		return books[i].Meta.CreatedAt > books[j].Meta.CreatedAt
 	})
@@ -525,7 +559,13 @@ func (s *VaultService) CreateBook(title, description, tags, preset string, showT
 
 	safeTitle := regexp.MustCompile(`[\\/:*?"<>|]+`).ReplaceAllString(title, "_")
 	bookDir := filepath.Join(root, safeTitle)
-	_ = os.MkdirAll(filepath.Join(bookDir, "visuals"), 0755)
+	chaptersDir := filepath.Join(bookDir, "chapters")
+	subpagesDir := filepath.Join(bookDir, "subpages")
+	visualsDir := filepath.Join(bookDir, "visuals")
+
+	_ = os.MkdirAll(chaptersDir, 0755)
+	_ = os.MkdirAll(subpagesDir, 0755)
+	_ = os.MkdirAll(visualsDir, 0755)
 
 	tagList := strings.Split(tags, ",")
 	for i := range tagList {
@@ -538,15 +578,7 @@ func (s *VaultService) CreateBook(title, description, tags, preset string, showT
 		if idx != -1 {
 			rawDecoded, decErr := base64.StdEncoding.DecodeString(coverDataUri[idx+8:])
 			if decErr == nil {
-				fn := "cover.jpg"
-				mimeHeader := coverDataUri[:idx]
-				if strings.Contains(mimeHeader, "png") {
-					fn = "cover.png"
-				} else if strings.Contains(mimeHeader, "webp") {
-					fn = "cover.webp"
-				} else if strings.Contains(mimeHeader, "gif") {
-					fn = "cover.gif"
-				}
+				fn := "cover.png"
 				if writeErr := os.WriteFile(filepath.Join(bookDir, fn), rawDecoded, 0644); writeErr == nil {
 					coverImageFile = &fn
 				}
@@ -569,19 +601,38 @@ func (s *VaultService) CreateBook(title, description, tags, preset string, showT
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	_ = os.WriteFile(filepath.Join(bookDir, "book.json"), data, 0644)
 
+	chID := "ch-" + randomHex(3)
+	safeIntro := regexp.MustCompile(`[\\/:*?"<>| ]+`).ReplaceAllString(title, "_")
+	fileName := fmt.Sprintf("01_%s_%s.md", chID, safeIntro)
 	ch1 := fmt.Sprintf("# %s\n\nWelcome to your new interactive notebook.", title)
-	_ = os.WriteFile(filepath.Join(bookDir, "01_Introduction.md"), []byte(ch1), 0644)
+	_ = os.WriteFile(filepath.Join(chaptersDir, fileName), []byte(ch1), 0644)
 
 	return bookDir, nil
 }
 
+func (s *VaultService) getChapterPath(bookPath, fileName string) string {
+	candidate := filepath.Join(bookPath, "chapters", fileName)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	rootCandidate := filepath.Join(bookPath, fileName)
+	if _, err := os.Stat(rootCandidate); err == nil {
+		return rootCandidate
+	}
+	_ = os.MkdirAll(filepath.Join(bookPath, "chapters"), 0755)
+	return candidate
+}
+
 func (s *VaultService) SaveChapter(bookPath, fileName, content string) error {
-	dest := filepath.Join(bookPath, fileName)
+	dest := s.getChapterPath(bookPath, fileName)
 	return os.WriteFile(dest, []byte(content), 0644)
 }
 
 func (s *VaultService) CreateChapter(bookPath, title string) (string, error) {
-	entries, _ := os.ReadDir(bookPath)
+	chaptersDir := filepath.Join(bookPath, "chapters")
+	_ = os.MkdirAll(chaptersDir, 0755)
+
+	entries, _ := os.ReadDir(chaptersDir)
 	maxNum := 0
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".md") {
@@ -594,16 +645,202 @@ func (s *VaultService) CreateChapter(bookPath, title string) (string, error) {
 		}
 	}
 	nextNum := maxNum + 1
+	chID := "ch-" + randomHex(3)
 	safeTitle := regexp.MustCompile(`[\\/:*?"<>| ]+`).ReplaceAllString(title, "_")
-	fileName := fmt.Sprintf("%02d_%s.md", nextNum, safeTitle)
+	fileName := fmt.Sprintf("%02d_%s_%s.md", nextNum, chID, safeTitle)
 	body := fmt.Sprintf("# %s\n\nWrite your thoughts, formulas, or code snippets here...", title)
 
-	err := os.WriteFile(filepath.Join(bookPath, fileName), []byte(body), 0644)
+	err := os.WriteFile(filepath.Join(chaptersDir, fileName), []byte(body), 0644)
 	return fileName, err
 }
 
 func (s *VaultService) DeleteChapter(bookPath, fileName string) error {
-	return os.Remove(filepath.Join(bookPath, fileName))
+	dest := s.getChapterPath(bookPath, fileName)
+	return os.Remove(dest)
+}
+
+func (s *VaultService) ReorderChapters(bookPath string, fileNames []string) error {
+	chaptersDir := filepath.Join(bookPath, "chapters")
+	_ = os.MkdirAll(chaptersDir, 0755)
+
+	type renamePlan struct {
+		oldPath string
+		newPath string
+	}
+	var plans []renamePlan
+
+	for idx, oldName := range fileNames {
+		oldPath := s.getChapterPath(bookPath, oldName)
+		stripped := regexp.MustCompile(`^0*\d+_?`).ReplaceAllString(oldName, "")
+		newName := fmt.Sprintf("%02d_%s", idx+1, stripped)
+		newPath := filepath.Join(chaptersDir, newName)
+		plans = append(plans, renamePlan{oldPath: oldPath, newPath: newPath})
+	}
+
+	for i, plan := range plans {
+		tempPath := plan.oldPath + fmt.Sprintf(".reorder_tmp_%d", i)
+		_ = os.Rename(plan.oldPath, tempPath)
+		plans[i].oldPath = tempPath
+	}
+	for _, plan := range plans {
+		_ = os.Rename(plan.oldPath, plan.newPath)
+	}
+
+	return nil
+}
+
+func (s *VaultService) CreateSubpage(bookPath, initialTitle string) (Subpage, error) {
+	subpagesDir := filepath.Join(bookPath, "subpages")
+	_ = os.MkdirAll(subpagesDir, 0755)
+
+	id := "page-" + randomHex(4)
+	fileName := id + ".md"
+	title := strings.TrimSpace(initialTitle)
+	if title == "" {
+		title = "Untitled Page"
+	}
+	content := fmt.Sprintf("# %s\n\n", title)
+	dest := filepath.Join(subpagesDir, fileName)
+	err := os.WriteFile(dest, []byte(content), 0644)
+	if err != nil {
+		return Subpage{}, err
+	}
+
+	return Subpage{
+		ID:       id,
+		BookID:   filepath.Base(bookPath),
+		FileName: fileName,
+		Title:    title,
+		Content:  content,
+	}, nil
+}
+
+func (s *VaultService) SaveSubpage(bookPath, subpageID, content string) error {
+	subpagesDir := filepath.Join(bookPath, "subpages")
+	_ = os.MkdirAll(subpagesDir, 0755)
+	dest := filepath.Join(subpagesDir, subpageID+".md")
+	return os.WriteFile(dest, []byte(content), 0644)
+}
+
+func (s *VaultService) GetSubpage(bookPath, subpageID string) (Subpage, error) {
+	dest := filepath.Join(bookPath, "subpages", subpageID+".md")
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		return Subpage{}, err
+	}
+	strContent := string(data)
+	return Subpage{
+		ID:       subpageID,
+		BookID:   filepath.Base(bookPath),
+		FileName: subpageID + ".md",
+		Title:    extractTitle(strContent, subpageID, 0),
+		Content:  strContent,
+	}, nil
+}
+
+func (s *VaultService) DeleteSubpage(bookPath, subpageID string) error {
+	dest := filepath.Join(bookPath, "subpages", subpageID+".md")
+	return os.Remove(dest)
+}
+
+type OrphanSubpageResult struct {
+	BookTitle string  `json:"bookTitle"`
+	BookPath  string  `json:"bookPath"`
+	Subpage   Subpage `json:"subpage"`
+}
+
+func (s *VaultService) ScanWorkspaceOrphans() ([]OrphanSubpageResult, error) {
+	s.mu.RLock()
+	root := s.activePath
+	s.mu.RUnlock()
+
+	if root == "" {
+		return []OrphanSubpageResult{}, nil
+	}
+
+	dirEntries, err := os.ReadDir(root)
+	if err != nil {
+		return []OrphanSubpageResult{}, err
+	}
+
+	var allOrphans []OrphanSubpageResult
+
+	for _, d := range dirEntries {
+		if !d.IsDir() || strings.HasPrefix(d.Name(), ".") {
+			continue
+		}
+		bookPath := filepath.Join(root, d.Name())
+		orphans, err := s.ScanOrphanSubpages(bookPath)
+		if err == nil && len(orphans) > 0 {
+			for _, o := range orphans {
+				allOrphans = append(allOrphans, OrphanSubpageResult{
+					BookTitle: d.Name(),
+					BookPath:  bookPath,
+					Subpage:   o,
+				})
+			}
+		}
+	}
+	return allOrphans, nil
+}
+
+func (s *VaultService) ScanOrphanSubpages(bookPath string) ([]Subpage, error) {
+	subpagesDir := filepath.Join(bookPath, "subpages")
+	chaptersDir := filepath.Join(bookPath, "chapters")
+
+	spEntries, err := os.ReadDir(subpagesDir)
+	if err != nil {
+		return []Subpage{}, nil
+	}
+
+	var combinedText strings.Builder
+	chEntries, _ := os.ReadDir(chaptersDir)
+	for _, ce := range chEntries {
+		if !ce.IsDir() && strings.HasSuffix(ce.Name(), ".md") {
+			bytes, _ := os.ReadFile(filepath.Join(chaptersDir, ce.Name()))
+			combinedText.Write(bytes)
+			combinedText.WriteString("\n")
+		}
+	}
+
+	rootEntries, _ := os.ReadDir(bookPath)
+	for _, re := range rootEntries {
+		if !re.IsDir() && strings.HasSuffix(re.Name(), ".md") {
+			bytes, _ := os.ReadFile(filepath.Join(bookPath, re.Name()))
+			combinedText.Write(bytes)
+			combinedText.WriteString("\n")
+		}
+	}
+
+	for _, sf := range spEntries {
+		if !sf.IsDir() && strings.HasSuffix(sf.Name(), ".md") {
+			bytes, _ := os.ReadFile(filepath.Join(subpagesDir, sf.Name()))
+			combinedText.Write(bytes)
+			combinedText.WriteString("\n")
+		}
+	}
+
+	allRef := combinedText.String()
+	orphans := []Subpage{}
+	for _, sf := range spEntries {
+		if sf.IsDir() || !strings.HasSuffix(sf.Name(), ".md") {
+			continue
+		}
+		id := strings.TrimSuffix(sf.Name(), ".md")
+		targetRef := "kepler-page://" + id
+		if !strings.Contains(allRef, targetRef) {
+			content, _ := os.ReadFile(filepath.Join(subpagesDir, sf.Name()))
+			strContent := string(content)
+			orphans = append(orphans, Subpage{
+				ID:       id,
+				BookID:   filepath.Base(bookPath),
+				FileName: sf.Name(),
+				Title:    extractTitle(strContent, sf.Name(), 0),
+				Content:  strContent,
+			})
+		}
+	}
+	return orphans, nil
 }
 
 func (s *VaultService) SaveQuestions(bookPath string, questionsJSON string) error {
@@ -665,38 +902,6 @@ func (s *VaultService) ExportVaultZip() (string, error) {
 	return outPath, nil
 }
 
-func (s *VaultService) seedDefaultBooks(root string) {
-	bookDir := filepath.Join(root, "Astrodynamics & Keplerian Orbits")
-	_ = os.MkdirAll(filepath.Join(bookDir, "visuals"), 0755)
-
-	meta := BookMeta{
-		ID:               "book-astrodynamics",
-		Title:            "Astrodynamics & Keplerian Orbits",
-		Description:      "Interactive celestial mechanics, vis-viva equations, and orbital transfers.",
-		CoverPreset:      "solar",
-		ShowTitleOnCover: true,
-		Tags:             []string{"Physics", "Astrodynamics", "Space"},
-		CreatedAt:        time.Now().UnixMilli(),
-		UpdatedAt:        time.Now().UnixMilli(),
-	}
-	rawMeta, _ := json.MarshalIndent(meta, "", "  ")
-	_ = os.WriteFile(filepath.Join(bookDir, "book.json"), rawMeta, 0644)
-
-	ch1 := `# Keplerian Motion
-
-Planetary motion obeys Kepler's three laws:
-
-1. The orbit of a planet is an ellipse with the Sun at one of the two foci.
-2. Equal areas are swept out during equal intervals:
-$$\frac{dA}{dt} = \frac{1}{2} r^2 \dot{\theta} = \text{const}$$
-3. Harmonic relation:
-$$\frac{T^2}{a^3} = \frac{4\pi^2}{G(M + m)}$$`
-	_ = os.WriteFile(filepath.Join(bookDir, "01_Keplerian_Motion.md"), []byte(ch1), 0644)
-
-	simHtml := `<!doctype html><html><body style="margin:0;background:#030712;display:flex;align-items:center;justify-content:center;height:100vh;"><canvas id="c" width="400" height="400" style="background:#0b0f19;border-radius:12px;border:1px solid #1e293b;"></canvas><script>const c=document.getElementById('c'),ctx=c.getContext('2d');let t=0;function r(){ctx.clearRect(0,0,400,400);ctx.strokeStyle='#334155';ctx.beginPath();ctx.ellipse(200,200,130,85,0,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.arc(250,200,9,0,Math.PI*2);ctx.fill();ctx.fillStyle='#38bdf8';ctx.beginPath();ctx.arc(200+130*Math.cos(t),200+85*Math.sin(t),6,0,Math.PI*2);ctx.fill();t+=0.025;requestAnimationFrame(r);}r();</script></body></html>`
-	_ = os.WriteFile(filepath.Join(bookDir, "visuals", "01_orbit.html"), []byte(simHtml), 0644)
-}
-
 func naturalLess(a, b string) bool {
 	re := regexp.MustCompile(`(\d+|\D+)`)
 	aParts := re.FindAllString(a, -1)
@@ -721,12 +926,9 @@ func naturalLess(a, b string) bool {
 
 func cleanTitleFormatting(s string) string {
 	s = strings.TrimSpace(s)
-	// Strip leading markdown heading markers (#, ##, ###, ####, etc.)
 	s = regexp.MustCompile(`^#+\s*`).ReplaceAllString(s, "")
-	// Strip bold/italic/code wrapper markers.
 	s = regexp.MustCompile("^(\\*\\*|__|\\*|_|`)").ReplaceAllString(s, "")
 	s = regexp.MustCompile("(\\*\\*|__|\\*|_|`)$").ReplaceAllString(s, "")
-	// Replace markdown links [Title](url) -> Title.
 	s = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`).ReplaceAllString(s, "$1")
 	return strings.TrimSpace(s)
 }

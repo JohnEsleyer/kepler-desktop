@@ -46,6 +46,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const { showPrompt, showConfirm } = useDialog();
   const [activeChapterIndex, setActiveChapterIndex] = useState<number>(initialChapterIndex);
   const [isChaptersOpen, setIsChaptersOpen] = useState<boolean>(true);
+  // Tree navigation stack for subpages
+  const [subpageStack, setSubpageStack] = useState<Array<{ id: string; title: string; content: string }>>([]);
+  const activeSubpage = subpageStack.length > 0 ? subpageStack[subpageStack.length - 1] : null;
+  const activeSubpageId = activeSubpage ? activeSubpage.id : null;
 
   // If the initial chapter has no visual companion, keep the drawer closed.
   const [rightDrawerMode, setRightDrawerMode] = useState<'none' | 'questions' | 'visual'>(() => {
@@ -64,6 +68,56 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   }, [book.chapters.length]);
 
   const activeChapter: Chapter | undefined = book.chapters[activeChapterIndex];
+// Handle Subpage navigation & Creation triggers with auto-navigation and tree nesting
+  useEffect(() => {
+    const handleOpenSubpage = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ subpageId: string; title?: string }>;
+      const spId = customEvent.detail.subpageId;
+      try {
+        const sp = await VaultAPI.getSubpage(book.path, spId);
+        setSubpageStack((prev) => [...prev, { id: sp.id, title: sp.title, content: sp.content }]);
+      } catch (err) {
+        console.error('Failed to load subpage:', err);
+      }
+    };
+
+    const handleCreateSubpage = async () => {
+      const title = await showPrompt({
+        title: 'New Subpage (/page)',
+        message: 'Enter title for this child Notion-style page:',
+        placeholder: 'Page title...',
+        confirmText: 'Create & Open',
+      });
+      if (!title || !title.trim()) return;
+
+      try {
+        const cleanTitle = title.trim();
+        const sp = await VaultAPI.createSubpage(book.path, cleanTitle);
+
+        // 1. Dispatch event to active Lexical instance to insert the PageNode live
+        window.dispatchEvent(
+          new CustomEvent('kepler:insert-page-node', {
+            detail: { subpageId: sp.id, title: cleanTitle },
+          })
+        );
+
+        // 2. Immediately auto-navigate down the tree into the new subpage
+        setSubpageStack((prev) => [...prev, { id: sp.id, title: sp.title, content: sp.content }]);
+        onRefresh();
+      } catch (err) {
+        console.error('Failed to create subpage:', err);
+      }
+    };
+
+    window.addEventListener('kepler:open-subpage', handleOpenSubpage);
+    window.addEventListener('kepler:create-subpage-trigger', handleCreateSubpage);
+    return () => {
+      window.removeEventListener('kepler:open-subpage', handleOpenSubpage);
+      window.removeEventListener('kepler:create-subpage-trigger', handleCreateSubpage);
+    };
+  }, [book.path, activeChapter, activeSubpage]);
+
+  // Visual companions are strictly per chapter and optional.
 
   // Visual companions are strictly per chapter and optional.
   // Matched strictly by chapter position (1-based: activeChapterIndex + 1).
@@ -85,6 +139,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   };
 
   const handleSaveNotes = async (updatedMarkdown: string) => {
+    if (activeSubpageId && activeSubpage) {
+      try {
+        activeSubpage.content = updatedMarkdown;
+        await VaultAPI.saveSubpage(book.path, activeSubpageId, updatedMarkdown);
+      } catch (err) {
+        console.error('Failed to save subpage:', err);
+      }
+      return;
+    }
+
     if (!activeChapter) return;
     try {
       const derivedTitle = extractFirstLineTitle(
@@ -98,8 +162,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         activeChapter.title = derivedTitle;
       }
 
-      // Trigger a re-render so the chapter sidebar reflects the new title
-      // while the user is typing.
       setChapterTitles((prev) =>
         prev[activeChapter.fileName] === derivedTitle
           ? prev
@@ -109,6 +171,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       await VaultAPI.saveChapter(book.path, activeChapter.fileName, updatedMarkdown);
     } catch (err) {
       console.error('Failed to save chapter:', err);
+    }
+  };
+
+  const handleReorderChapters = async (reordered: Chapter[]) => {
+    try {
+      const fileNames = reordered.map((c) => c.fileName);
+      await VaultAPI.reorderChapters(book.path, fileNames);
+      onRefresh();
+    } catch (e) {
+      console.error('Failed to reorder chapters:', e);
     }
   };
 
@@ -302,8 +374,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             <ChapterList
               chapters={chaptersWithLiveTitles}
               activeIndex={activeChapterIndex}
-              onSelect={selectChapter}
+              onSelect={(idx) => {
+                setSubpageStack([]);
+                selectChapter(idx);
+              }}
               onDelete={handleDeleteChapter}
+              onReorder={handleReorderChapters}
             />
           </div>
         ) : (
@@ -326,9 +402,60 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           </div>
         )}
 
-        {/* Center: Lexical Markdown Editor */}
+        {/* Center: Lexical Markdown Editor (handles Chapters or Notion Subpages with Tree Back Navigation) */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {activeChapter ? (
+          {activeSubpage ? (
+            <div className="flex flex-col h-full">
+              {/* Notion-Style Breadcrumb & Back Navigation Header */}
+              <div className="flex items-center justify-between border-b border-slate-800 bg-[#060913] px-5 py-2 text-xs">
+                <div className="flex items-center gap-2 truncate">
+                  <button
+                    onClick={() => setSubpageStack((prev) => prev.slice(0, -1))}
+                    className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-slate-800 px-2.5 py-1 font-semibold text-indigo-300 hover:bg-slate-700 hover:text-white transition"
+                    title="Go back up the page tree"
+                  >
+                    <ArrowLeft size={13} />
+                    <span>Back</span>
+                  </button>
+
+                  <div className="h-3.5 w-[1px] bg-slate-800 mx-1" />
+
+                  <button
+                    onClick={() => setSubpageStack([])}
+                    className="truncate font-medium text-slate-400 hover:text-indigo-300 transition"
+                  >
+                    {activeChapterTitle}
+                  </button>
+
+                  {subpageStack.map((item, idx) => {
+                    const isCurrent = idx === subpageStack.length - 1;
+                    return (
+                      <React.Fragment key={item.id}>
+                        <span className="text-slate-600">/</span>
+                        {isCurrent ? (
+                          <span className="truncate font-semibold text-slate-200">{item.title}</span>
+                        ) : (
+                          <button
+                            onClick={() => setSubpageStack((prev) => prev.slice(0, idx + 1))}
+                            className="truncate font-medium text-slate-400 hover:text-indigo-300 transition"
+                          >
+                            {item.title}
+                          </button>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <LexicalMarkdownEditor
+                key={`subpage-${activeSubpage.id}`}
+                chapterTitle={activeSubpage.title}
+                initialContent={activeSubpage.content}
+                onSave={handleSaveNotes}
+              />
+            </div>
+          ) : activeChapter ? (
             <LexicalMarkdownEditor
               key={activeChapter.id}
               chapterTitle={activeChapter.title}

@@ -2,12 +2,13 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Book } from '../types/vault';
 import { BookCard } from './BookCard';
 import { Folder, FolderOpen, Plus, RefreshCw, Download, ChevronLeft, ChevronRight, X, Tag as TagIcon, Check } from 'lucide-react';
-import { SearchInput } from './ui/CustomUI';
+import { SearchInput, BookshelfSkeleton } from './ui/CustomUI';
 
 interface BookshelfProps {
   vaultPath: string;
   books: Book[];
   tags: string[];
+  isLoading?: boolean;
   onOpenBook: (book: Book) => void;
   onEditBook: (book: Book) => void;
   onRefresh: () => void;
@@ -22,6 +23,7 @@ export const Bookshelf: React.FC<BookshelfProps> = ({
   vaultPath,
   books,
   tags,
+  isLoading = false,
   onOpenBook,
   onEditBook,
   onRefresh,
@@ -237,23 +239,27 @@ export const Bookshelf: React.FC<BookshelfProps> = ({
         />
       </div>
 
-      {/* Grid of Books */}
+      {/* Grid of Books with Skeleton fallback */}
       <main className="flex-1 overflow-y-auto p-8">
-        <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {currentBooks.map((b) => (
-            <BookCard
-              key={b.meta.id}
-              book={b}
-              onOpen={onOpenBook}
-              onEdit={(book, e) => {
-                e.stopPropagation();
-                onEditBook(book);
-              }}
-            />
-          ))}
-        </div>
+        {isLoading ? (
+          <BookshelfSkeleton />
+        ) : (
+          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {currentBooks.map((b) => (
+              <BookCard
+                key={b.meta.id}
+                book={b}
+                onOpen={onOpenBook}
+                onEdit={(book, e) => {
+                  e.stopPropagation();
+                  onEditBook(book);
+                }}
+              />
+            ))}
+          </div>
+        )}
 
-        {filteredBooks.length === 0 && (
+        {!isLoading && filteredBooks.length === 0 && (
           <div className="mt-20 flex flex-col items-center justify-center text-center">
             <p className="text-sm font-semibold text-slate-300">
               {search || selectedTag !== 'All'
@@ -278,7 +284,7 @@ export const Bookshelf: React.FC<BookshelfProps> = ({
       </main>
 
       {/* Pagination Footer */}
-      {filteredBooks.length > PAGE_SIZE && (
+      {!isLoading && filteredBooks.length > PAGE_SIZE && (
         <footer className="flex h-12 items-center justify-between border-t border-slate-800/80 bg-[#070b14] px-6 text-xs text-slate-400">
           <div>
             Showing <span className="font-semibold text-slate-200">{(currentPage - 1) * PAGE_SIZE + 1}</span> to{' '}

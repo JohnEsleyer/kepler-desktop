@@ -10,7 +10,9 @@ export type {
     Book,
     BookMeta,
     Chapter,
+    OrphanSubpageResult,
     Question,
+    Subpage,
     VaultScanResult,
     Visual,
     WorkspaceEntry
