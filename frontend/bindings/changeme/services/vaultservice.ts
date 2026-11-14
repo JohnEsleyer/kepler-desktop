@@ -49,6 +49,14 @@ export function DeleteVisual(bookPath: string, fileName: string): $CancellablePr
     return $Call.ByID(2059014882, bookPath, fileName);
 }
 
+/**
+ * DeleteWorkspace permanently removes a workspace directory from disk and
+ * prunes it from the saved workspaces list.
+ */
+export function DeleteWorkspace(dir: string): $CancellablePromise<$models.VaultScanResult | null> {
+    return $Call.ByID(710407791, dir);
+}
+
 export function ExportVaultZip(): $CancellablePromise<string> {
     return $Call.ByID(2062305120);
 }

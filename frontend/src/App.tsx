@@ -73,7 +73,7 @@ function AppContent() {
       title: 'Close Workspace',
       message: `Remove "${path}" from your workspaces sidebar? Files will remain on disk.`,
       confirmText: 'Remove',
-      isDanger: true,
+      isDanger: false,
     });
     if (!ok) return;
 
@@ -95,6 +95,38 @@ function AppContent() {
       });
     } catch (e) {
       showAlert('Error', `${e}`);
+    }
+  };
+
+  const handleDeleteWorkspace = async (path: string) => {
+    const ok = await showConfirm({
+      title: 'Delete Entire Workspace',
+      message: `PERMANENTLY DELETE "${path}" and all notebooks inside from your disk? This action CANNOT be undone.`,
+      confirmText: 'Delete Permanently',
+      isDanger: true,
+    });
+    if (!ok) return;
+
+    try {
+      setLoading(true);
+      const res = await VaultAPI.deleteWorkspace(path);
+      setScanResult(res);
+      mergeBooksIntoCache(res.books);
+
+      setTabs((prev) => {
+        const remaining = prev.filter((t) => t.workspacePath !== path);
+        setActiveTabId((current) => {
+          if (current && !remaining.some((t) => t.id === current)) {
+            return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
+          }
+          return current;
+        });
+        return remaining;
+      });
+    } catch (e) {
+      showAlert('Delete Workspace Failed', `${e}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -257,26 +289,29 @@ function AppContent() {
           activeWorkspace={scanResult?.activeWorkspace || ''}
           onSelect={handleSwitchWorkspace}
           onCloseWorkspace={handleCloseWorkspace}
+          onDeleteWorkspace={handleDeleteWorkspace}
           onOpenNewFolder={handleOpenFolder}
           isOpen={isSidebarOpen}
         />
 
-        {/* Content Area: Active Book Workspace or Bookshelf */}
+        {/* Content Area: Active Book Workspace or Bookshelf with smooth fade transition */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {activeBook ? (
-            <Workspace
-              key={activeBook.meta.id}
-              book={activeBook}
-              initialChapterIndex={activeTab?.activeChapterIndex ?? 0}
-              onChapterChange={(index) => {
-                if (!activeTab) return;
-                setTabs((prev) =>
-                  prev.map((t) => (t.id === activeTab.id ? { ...t, activeChapterIndex: index } : t))
-                );
-              }}
-              onBack={() => setActiveTabId(null)}
-              onRefresh={loadVault}
-            />
+            <div className="flex h-full w-full flex-col animate-fade-in">
+              <Workspace
+                key={activeBook.meta.id}
+                book={activeBook}
+                initialChapterIndex={activeTab?.activeChapterIndex ?? 0}
+                onChapterChange={(index) => {
+                  if (!activeTab) return;
+                  setTabs((prev) =>
+                    prev.map((t) => (t.id === activeTab.id ? { ...t, activeChapterIndex: index } : t))
+                  );
+                }}
+                onBack={() => setActiveTabId(null)}
+                onRefresh={loadVault}
+              />
+            </div>
           ) : (
             <Bookshelf
               vaultPath={scanResult?.vaultPath || ''}

@@ -1,12 +1,13 @@
 import React from 'react';
 import { WorkspaceEntry } from '../../types/vault';
-import { Folder, FolderPlus, X, HardDrive, Layers } from 'lucide-react';
+import { Folder, FolderPlus, X, HardDrive, Layers, Trash2 } from 'lucide-react';
 
 interface WorkspaceSidebarProps {
   workspaces: WorkspaceEntry[];
   activeWorkspace: string;
   onSelect: (path: string) => void;
   onCloseWorkspace: (path: string) => void;
+  onDeleteWorkspace?: (path: string) => void;
   onOpenNewFolder: () => void;
   isOpen: boolean;
 }
@@ -16,6 +17,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   activeWorkspace,
   onSelect,
   onCloseWorkspace,
+  onDeleteWorkspace,
   onOpenNewFolder,
   isOpen,
 }) => {
@@ -64,13 +66,25 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                   <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
                     {ws.bookCount}
                   </span>
+                  {onDeleteWorkspace && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteWorkspace(ws.path);
+                      }}
+                      className="p-1 text-slate-500 opacity-0 transition hover:text-rose-400 group-hover:opacity-100"
+                      title="Permanently Delete Workspace from Disk"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onCloseWorkspace(ws.path);
                     }}
-                    className="p-1 text-slate-500 opacity-0 transition hover:text-rose-400 group-hover:opacity-100"
-                    title="Close Workspace"
+                    className="p-1 text-slate-500 opacity-0 transition hover:text-slate-300 group-hover:opacity-100"
+                    title="Remove from sidebar list"
                   >
                     <X size={13} />
                   </button>

@@ -78,6 +78,93 @@ func (s *VaultService) initDefaultVault() {
 	if s.activePath == "" && len(s.savedWorkspaces) > 0 {
 		s.activePath = s.savedWorkspaces[0]
 	}
+
+	// Auto-migrate legacy covers (cover.png -> book.cover) in the default
+	// ~/Documents/001-Kepler data root if it exists.
+	go s.migrateLegacyWorkspaceCovers()
+}
+
+func (s *VaultService) migrateLegacyWorkspaceCovers() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	targetDir := filepath.Join(home, "Documents", "001-Kepler")
+	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+		s.migrateCoversInDir(targetDir)
+	}
+}
+
+// migrateCoversInDir walks a directory tree and migrates every notebook folder
+// found (a directory containing book.json) from legacy cover files to the
+// canonical book.cover file. Workspaces may nest books one or more levels deep.
+func (s *VaultService) migrateCoversInDir(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		child := filepath.Join(dir, entry.Name())
+		if _, err := os.Stat(filepath.Join(child, "book.json")); err == nil {
+			s.migrateBookCovers(child)
+		} else {
+			s.migrateCoversInDir(child)
+		}
+	}
+}
+
+func (s *VaultService) migrateBookCovers(bookDir string) {
+	legacyCovers := []string{"cover.png", "cover.jpg", "cover.jpeg", "cover.webp", "cover.gif"}
+	newPath := filepath.Join(bookDir, "book.cover")
+	migrated := false
+	for _, legacy := range legacyCovers {
+		oldPath := filepath.Join(bookDir, legacy)
+		if _, err := os.Stat(oldPath); err == nil {
+			if _, err := os.Stat(newPath); os.IsNotExist(err) {
+				_ = os.Rename(oldPath, newPath)
+			} else {
+				_ = os.Remove(oldPath)
+			}
+			migrated = true
+		}
+	}
+	if !migrated {
+		return
+	}
+	metaPath := filepath.Join(bookDir, "book.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return
+	}
+	var meta BookMeta
+	if err := json.Unmarshal(data, &meta); err == nil {
+		coverName := "book.cover"
+		meta.CoverImage = &coverName
+		updated, _ := json.MarshalIndent(meta, "", "  ")
+		_ = os.WriteFile(metaPath, updated, 0644)
+	}
+}
+
+// sniffImageMime detects the image MIME type from magic bytes so extensionless
+// book.cover files render with the correct data URI type.
+func sniffImageMime(b []byte) string {
+	switch {
+	case len(b) >= 8 && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G':
+		return "image/png"
+	case len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF:
+		return "image/jpeg"
+	case len(b) >= 12 && string(b[8:12]) == "WEBP":
+		return "image/webp"
+	case len(b) >= 6 && string(b[0:3]) == "GIF":
+		return "image/gif"
+	case len(b) >= 4 && string(b[0:4]) == "<svg":
+		return "image/svg+xml"
+	default:
+		return "image/png"
+	}
 }
 
 type workspacesConfig struct {
@@ -223,12 +310,45 @@ func (s *VaultService) ChooseVaultFolder() (string, error) {
 			break
 		}
 	}
+	// Opening an already-registered workspace must never create a duplicate
+	// sidebar entry - just switch to it instead.
 	if !found {
-		s.savedWorkspaces = append(s.savedWorkspaces, dir)
+		s.savedWorkspaces = append([]string{dir}, s.savedWorkspaces...)
 	}
 	s.activePath = dir
 	s.persistWorkspacesList()
 	return dir, nil
+}
+
+// DeleteWorkspace permanently removes a workspace directory from disk and
+// prunes it from the saved workspaces list.
+func (s *VaultService) DeleteWorkspace(dir string) (*VaultScanResult, error) {
+	cleanTarget := filepath.Clean(dir)
+
+	if err := os.RemoveAll(cleanTarget); err != nil {
+		return nil, fmt.Errorf("failed to delete workspace directory: %w", err)
+	}
+
+	s.mu.Lock()
+	filtered := make([]string, 0, len(s.savedWorkspaces))
+	for _, ws := range s.savedWorkspaces {
+		if !samePath(ws, cleanTarget) {
+			filtered = append(filtered, ws)
+		}
+	}
+	s.savedWorkspaces = filtered
+
+	if samePath(s.activePath, cleanTarget) {
+		if len(s.savedWorkspaces) > 0 {
+			s.activePath = s.savedWorkspaces[0]
+		} else {
+			s.activePath = ""
+		}
+	}
+	s.persistWorkspacesList()
+	s.mu.Unlock()
+
+	return s.ScanVault()
 }
 
 func (s *VaultService) SwitchWorkspace(dir string) (*VaultScanResult, error) {
@@ -285,9 +405,17 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 	workspaces := append([]string{}, s.savedWorkspaces...)
 	s.mu.RUnlock()
 
+	// Validate workspaces against disk in real-time. Workspaces deleted outside
+	// the app disappear from the list immediately on the next scan.
+	validWorkspaces := make([]string, 0, len(workspaces))
 	wsEntries := make([]WorkspaceEntry, 0, len(workspaces))
 	for _, ws := range workspaces {
 		clean := filepath.Clean(ws)
+		info, err := os.Stat(clean)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		validWorkspaces = append(validWorkspaces, clean)
 		count := 0
 		if subDirs, e := os.ReadDir(clean); e == nil {
 			for _, sub := range subDirs {
@@ -302,6 +430,23 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			BookCount: count,
 		})
 	}
+
+	// If any workspace vanished, persist the pruned list and shift the active
+	// workspace to the next available one.
+	s.mu.Lock()
+	if len(validWorkspaces) != len(s.savedWorkspaces) {
+		s.savedWorkspaces = validWorkspaces
+		if _, err := os.Stat(s.activePath); err != nil {
+			if len(s.savedWorkspaces) > 0 {
+				s.activePath = s.savedWorkspaces[0]
+			} else {
+				s.activePath = ""
+			}
+			vaultRoot = s.activePath
+		}
+		s.persistWorkspacesList()
+	}
+	s.mu.Unlock()
 
 	if vaultRoot == "" {
 		return &VaultScanResult{
@@ -365,23 +510,24 @@ func (s *VaultService) ScanVault() (*VaultScanResult, error) {
 			_ = os.WriteFile(metaFile, updated, 0644)
 		}
 
+		// Check for book.cover (or any legacy cover filename) and convert to a
+		// Data URI using magic-byte sniffing, since book.cover is extensionless.
+		coverFileCandidates := []string{"book.cover"}
 		if meta.CoverImage != nil && *meta.CoverImage != "" && !strings.HasPrefix(*meta.CoverImage, "data:") {
-			coverFilePath := filepath.Join(bookDir, *meta.CoverImage)
+			coverFileCandidates = append([]string{*meta.CoverImage}, coverFileCandidates...)
+		}
+		coverFound := false
+		for _, cfn := range coverFileCandidates {
+			coverFilePath := filepath.Join(bookDir, cfn)
 			if bData, readErr := os.ReadFile(coverFilePath); readErr == nil {
-				mime := "image/jpeg"
-				lowerName := strings.ToLower(*meta.CoverImage)
-				if strings.HasSuffix(lowerName, ".png") {
-					mime = "image/png"
-				} else if strings.HasSuffix(lowerName, ".webp") {
-					mime = "image/webp"
-				} else if strings.HasSuffix(lowerName, ".gif") {
-					mime = "image/gif"
-				}
-				dataUri := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(bData))
+				dataUri := fmt.Sprintf("data:%s;base64,%s", sniffImageMime(bData), base64.StdEncoding.EncodeToString(bData))
 				meta.CoverImage = &dataUri
-			} else {
-				meta.CoverImage = nil
+				coverFound = true
+				break
 			}
+		}
+		if !coverFound {
+			meta.CoverImage = nil
 		}
 
 		chaptersDir := filepath.Join(bookDir, "chapters")
@@ -527,18 +673,11 @@ func (s *VaultService) UpdateBookMeta(bookPath string, meta BookMeta) error {
 	if meta.CoverImage != nil && strings.HasPrefix(*meta.CoverImage, "data:") {
 		idx := strings.Index(*meta.CoverImage, ";base64,")
 		if idx != -1 {
-			mimeHeader := (*meta.CoverImage)[:idx]
-			ext := ".jpg"
-			if strings.Contains(mimeHeader, "png") {
-				ext = ".png"
-			} else if strings.Contains(mimeHeader, "webp") {
-				ext = ".webp"
-			} else if strings.Contains(mimeHeader, "gif") {
-				ext = ".gif"
-			}
 			rawDecoded, decErr := base64.StdEncoding.DecodeString((*meta.CoverImage)[idx+8:])
 			if decErr == nil {
-				coverFileName := "cover" + ext
+				// Always store covers as the extensionless book.cover so the
+				// Android gallery/MediaScanner never indexes notebook folders.
+				coverFileName := "book.cover"
 				_ = os.WriteFile(filepath.Join(bookPath, coverFileName), rawDecoded, 0644)
 				meta.CoverImage = &coverFileName
 			}
@@ -578,7 +717,7 @@ func (s *VaultService) CreateBook(title, description, tags, preset string, showT
 		if idx != -1 {
 			rawDecoded, decErr := base64.StdEncoding.DecodeString(coverDataUri[idx+8:])
 			if decErr == nil {
-				fn := "cover.png"
+				fn := "book.cover"
 				if writeErr := os.WriteFile(filepath.Join(bookDir, fn), rawDecoded, 0644); writeErr == nil {
 					coverImageFile = &fn
 				}

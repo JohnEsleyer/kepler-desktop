@@ -20,6 +20,9 @@ export const VaultAPI = {
   closeWorkspace: async (path: string): Promise<VaultScanResult> => {
     return (await Call.ByName('changeme/services.VaultService.CloseWorkspace', path)) as VaultScanResult;
   },
+  deleteWorkspace: async (path: string): Promise<VaultScanResult> => {
+    return (await Call.ByName('changeme/services.VaultService.DeleteWorkspace', path)) as VaultScanResult;
+  },
   saveChapter: async (bookPath: string, fileName: string, content: string): Promise<void> => {
     await Call.ByName('changeme/services.VaultService.SaveChapter', bookPath, fileName, content);
   },
