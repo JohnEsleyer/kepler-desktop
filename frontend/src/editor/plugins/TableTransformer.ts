@@ -5,6 +5,7 @@ import {
   $isParagraphNode,
   $isRootNode,
   $isTextNode,
+  ElementNode,
   LexicalNode,
   ParagraphNode,
 } from 'lexical';
@@ -179,6 +180,43 @@ export function $createTableFromRows(headerCells: string[], dataRows: string[][]
   return tableNode;
 }
 
+export function convertTableParagraphs(container: ElementNode): void {
+  const children = container.getChildren();
+  for (const child of children) {
+    if (child.getParent() === null || !$isParagraphNode(child)) continue;
+
+    const headerText = child.getTextContent().trim();
+    if (!isTableRow(headerText) || isTableDelimiterRow(headerText)) continue;
+
+    const nextNode = child.getNextSibling();
+    if (!nextNode || !$isParagraphNode(nextNode)) continue;
+
+    const nextText = nextNode.getTextContent().trim();
+    if (!isTableDelimiterRow(nextText)) continue;
+
+    const headerCells = splitTableRow(headerText);
+    const dataRows: string[][] = [];
+    const nodesToRemove: LexicalNode[] = [nextNode];
+
+    let sibling: LexicalNode | null = nextNode.getNextSibling();
+    while (sibling && $isParagraphNode(sibling)) {
+      const lineText = sibling.getTextContent().trim();
+      if (!lineText || !isTableRow(lineText) || isTableDelimiterRow(lineText)) {
+        break;
+      }
+      dataRows.push(splitTableRow(lineText));
+      nodesToRemove.push(sibling);
+      sibling = sibling.getNextSibling();
+    }
+
+    const tableNode = $createTableFromRows(headerCells, dataRows);
+    child.replace(tableNode);
+    for (const node of nodesToRemove) {
+      node.remove();
+    }
+  }
+}
+
 export function extractMarkdownTable(text: string): {
   headerCells: string[];
   dataRows: string[][];
@@ -225,41 +263,9 @@ export const TABLE_TRANSFORMER: ElementTransformer = {
     return exportTableToMarkdown(node);
   },
   regExp: /^\|?.+\|.+\|?$/,
-  replace: (parentNode, _children, _match, _isImport) => {
-    const headerRowText = parentNode.getTextContent().trim();
-    if (!isTableRow(headerRowText) || isTableDelimiterRow(headerRowText)) {
-      return;
-    }
-
-    const nextNode = parentNode.getNextSibling();
-    if (!nextNode || !$isParagraphNode(nextNode)) {
-      return;
-    }
-
-    const nextText = nextNode.getTextContent().trim();
-    if (!isTableDelimiterRow(nextText)) {
-      return;
-    }
-
-    const headerCells = splitTableRow(headerRowText);
-    const dataRows: string[][] = [];
-    const nodesToRemove: LexicalNode[] = [nextNode];
-
-    let sibling: LexicalNode | null = nextNode.getNextSibling();
-    while (sibling && $isParagraphNode(sibling)) {
-      const lineText = sibling.getTextContent().trim();
-      if (!lineText || !isTableRow(lineText) || isTableDelimiterRow(lineText)) {
-        break;
-      }
-      dataRows.push(splitTableRow(lineText));
-      nodesToRemove.push(sibling);
-      sibling = sibling.getNextSibling();
-    }
-
-    const tableNode = $createTableFromRows(headerCells, dataRows);
-    parentNode.replace(tableNode);
-    for (const n of nodesToRemove) {
-      n.remove();
+  replace: (parentNode, children) => {
+    if (children && children.length > 0) {
+      parentNode.append(...children);
     }
   },
   type: 'element',
