@@ -6,91 +6,9 @@ import {
   $getSelection,
   $isRangeSelection,
   $createParagraphNode,
-  LexicalNode,
 } from 'lexical';
-import { $convertFromMarkdownString } from '@lexical/markdown';
 import { $isTableNode } from '@lexical/table';
-import {
-  isTableRow,
-  isTableDelimiterRow,
-  splitTableRow,
-  $createTableFromRows,
-} from './TableTransformer';
-import { normalizeMarkdownMath } from './MathPlugin';
-
-function parseMarkdownContentToNodes(
-  text: string,
-  transformers: any[]
-): LexicalNode[] {
-  const lines = text.split('\n');
-  const chunks: Array<
-    | { type: 'markdown'; lines: string[] }
-    | { type: 'table'; header: string; rows: string[] }
-  > = [];
-
-  let currentMarkdown: string[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    const nextLine = i + 1 < lines.length ? lines[i + 1] : null;
-
-    if (
-      isTableRow(line) &&
-      !isTableDelimiterRow(line) &&
-      nextLine !== null &&
-      isTableDelimiterRow(nextLine)
-    ) {
-      if (currentMarkdown.length > 0) {
-        chunks.push({ type: 'markdown', lines: currentMarkdown });
-        currentMarkdown = [];
-      }
-
-      const header = line;
-      const rows: string[] = [];
-      i += 2; // skip header and delimiter lines
-
-      while (
-        i < lines.length &&
-        isTableRow(lines[i]) &&
-        !isTableDelimiterRow(lines[i])
-      ) {
-        rows.push(lines[i]);
-        i++;
-      }
-
-      chunks.push({ type: 'table', header, rows });
-    } else {
-      currentMarkdown.push(line);
-      i++;
-    }
-  }
-
-  if (currentMarkdown.length > 0) {
-    chunks.push({ type: 'markdown', lines: currentMarkdown });
-  }
-
-  const resultNodes: LexicalNode[] = [];
-
-  for (const chunk of chunks) {
-    if (chunk.type === 'table') {
-      const headerCells = splitTableRow(chunk.header);
-      const dataRows = chunk.rows.map((r) => splitTableRow(r));
-      const tableNode = $createTableFromRows(headerCells, dataRows);
-      resultNodes.push(tableNode);
-    } else {
-      const mdText = chunk.lines.join('\n');
-      if (!mdText.trim()) continue;
-      const tempContainer = $createParagraphNode();
-      const normalized = normalizeMarkdownMath(mdText);
-      $convertFromMarkdownString(normalized, transformers, tempContainer);
-      const children = tempContainer.getChildren();
-      resultNodes.push(...children);
-    }
-  }
-
-  return resultNodes;
-}
+import { parseMarkdownToLexicalNodes } from './TableTransformer';
 
 export function PasteMarkdownPlugin({ transformers }: { transformers: any[] }) {
   const [editor] = useLexicalComposerContext();
@@ -124,7 +42,7 @@ export function PasteMarkdownPlugin({ transformers }: { transformers: any[] }) {
           editor.update(() => {
             const selection = $getSelection();
             if ($isRangeSelection(selection)) {
-              const nodesToInsert = parseMarkdownContentToNodes(text, transformers);
+              const nodesToInsert = parseMarkdownToLexicalNodes(text, transformers);
               if (nodesToInsert.length > 0) {
                 const lastNode = nodesToInsert[nodesToInsert.length - 1];
                 if ($isTableNode(lastNode)) {
@@ -145,3 +63,4 @@ export function PasteMarkdownPlugin({ transformers }: { transformers: any[] }) {
 
   return null;
 }
+  

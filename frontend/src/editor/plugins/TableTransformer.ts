@@ -1,11 +1,10 @@
-import { ElementTransformer } from '@lexical/markdown';
+import { ElementTransformer, $convertFromMarkdownString } from '@lexical/markdown';
 import {
   $createParagraphNode,
   $createTextNode,
   $isParagraphNode,
   $isRootNode,
   $isTextNode,
-  ElementNode,
   LexicalNode,
   ParagraphNode,
 } from 'lexical';
@@ -24,6 +23,7 @@ import {
 import { useEffect } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $isCodeNode } from '@lexical/code';
+import { normalizeMarkdownMath, $createMathNode, $isMathNode } from './MathPlugin';
 
 export function splitTableRow(rowText: string): string[] {
   let trimmed = rowText.trim();
@@ -78,7 +78,7 @@ export function createCellParagraph(cellText: string): ParagraphNode {
     return p;
   }
 
-  const tokens = trimmed.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
+  const tokens = trimmed.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\$[^\$\n]+\$)/g);
   for (const token of tokens) {
     if (!token) continue;
     if (token.startsWith('**') && token.endsWith('**') && token.length >= 4) {
@@ -93,6 +93,8 @@ export function createCellParagraph(cellText: string): ParagraphNode {
       const node = $createTextNode(token.slice(1, -1));
       node.setFormat('italic');
       p.append(node);
+    } else if (token.startsWith('$') && token.endsWith('$') && token.length >= 2) {
+      p.append($createMathNode(token.slice(1, -1), false));
     } else {
       p.append($createTextNode(token));
     }
@@ -104,22 +106,26 @@ export function getCellMarkdown(cellNode: TableCellNode): string {
   const parts: string[] = [];
   for (const child of cellNode.getChildren()) {
     if ($isParagraphNode(child)) {
-      for (const textNode of child.getChildren()) {
-        if ($isTextNode(textNode)) {
-          let text = textNode.getTextContent();
-          if (textNode.hasFormat('bold')) text = `**${text}**`;
-          if (textNode.hasFormat('italic')) text = `*${text}*`;
-          if (textNode.hasFormat('code')) text = `\`${text}\``;
+      for (const inner of child.getChildren()) {
+        if ($isTextNode(inner)) {
+          let text = inner.getTextContent();
+          if (inner.hasFormat('bold')) text = `**${text}**`;
+          if (inner.hasFormat('italic')) text = `*${text}*`;
+          if (inner.hasFormat('code')) text = `\`${text}\``;
           parts.push(text);
+        } else if ($isMathNode(inner)) {
+          parts.push(`$${inner.getEquation()}$`);
         } else {
-          parts.push(child.getTextContent());
+          parts.push(inner.getTextContent());
         }
       }
+    } else if ($isMathNode(child)) {
+      parts.push(`$${child.getEquation()}$`);
     } else {
       parts.push(child.getTextContent());
     }
   }
-  return parts.join('').trim().replace(/\|/g, '\\|');
+  return parts.join('').trim().replace(/\\\|/g, '|').replace(/\|/g, '\\|');
 }
 
 export function exportTableToMarkdown(tableNode: TableNode): string {
@@ -180,80 +186,81 @@ export function $createTableFromRows(headerCells: string[], dataRows: string[][]
   return tableNode;
 }
 
-export function convertTableParagraphs(container: ElementNode): void {
-  const children = container.getChildren();
-  for (const child of children) {
-    if (child.getParent() === null || !$isParagraphNode(child)) continue;
-
-    const headerText = child.getTextContent().trim();
-    if (!isTableRow(headerText) || isTableDelimiterRow(headerText)) continue;
-
-    const nextNode = child.getNextSibling();
-    if (!nextNode || !$isParagraphNode(nextNode)) continue;
-
-    const nextText = nextNode.getTextContent().trim();
-    if (!isTableDelimiterRow(nextText)) continue;
-
-    const headerCells = splitTableRow(headerText);
-    const dataRows: string[][] = [];
-    const nodesToRemove: LexicalNode[] = [nextNode];
-
-    let sibling: LexicalNode | null = nextNode.getNextSibling();
-    while (sibling && $isParagraphNode(sibling)) {
-      const lineText = sibling.getTextContent().trim();
-      if (!lineText || !isTableRow(lineText) || isTableDelimiterRow(lineText)) {
-        break;
-      }
-      dataRows.push(splitTableRow(lineText));
-      nodesToRemove.push(sibling);
-      sibling = sibling.getNextSibling();
-    }
-
-    const tableNode = $createTableFromRows(headerCells, dataRows);
-    child.replace(tableNode);
-    for (const node of nodesToRemove) {
-      node.remove();
-    }
+export function parseMarkdownToLexicalNodes(
+  text: string,
+  transformers: any[]
+): LexicalNode[] {
+  if (!text || !text.trim()) {
+    return [];
   }
-}
+  const lines = text.split('\n');
+  const chunks: Array<
+    | { type: 'markdown'; lines: string[] }
+    | { type: 'table'; header: string; rows: string[] }
+  > = [];
 
-export function extractMarkdownTable(text: string): {
-  headerCells: string[];
-  dataRows: string[][];
-  rawTableText: string;
-} | null {
-  const lines = text
-    .trim()
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
+  let currentMarkdown: string[] = [];
+  let i = 0;
 
-  let headerIndex = -1;
-  for (let i = 0; i < lines.length - 1; i++) {
-    if (isTableRow(lines[i]) && isTableDelimiterRow(lines[i + 1])) {
-      headerIndex = i;
-      break;
-    }
-  }
-
-  if (headerIndex === -1) return null;
-
-  const headerCells = splitTableRow(lines[headerIndex]);
-  const dataRows: string[][] = [];
-  const tableLines: string[] = [lines[headerIndex], lines[headerIndex + 1]];
-
-  for (let i = headerIndex + 2; i < lines.length; i++) {
+  while (i < lines.length) {
     const line = lines[i];
-    if (!isTableRow(line) || isTableDelimiterRow(line)) break;
-    dataRows.push(splitTableRow(line));
-    tableLines.push(line);
+    const nextLine = i + 1 < lines.length ? lines[i + 1] : null;
+
+    if (
+      isTableRow(line) &&
+      !isTableDelimiterRow(line) &&
+      nextLine !== null &&
+      isTableDelimiterRow(nextLine)
+    ) {
+      if (currentMarkdown.length > 0) {
+        chunks.push({ type: 'markdown', lines: currentMarkdown });
+        currentMarkdown = [];
+      }
+
+      const header = line;
+      const rows: string[] = [];
+      i += 2;
+
+      while (
+        i < lines.length &&
+        isTableRow(lines[i]) &&
+        !isTableDelimiterRow(lines[i])
+      ) {
+        rows.push(lines[i]);
+        i++;
+      }
+
+      chunks.push({ type: 'table', header, rows });
+    } else {
+      currentMarkdown.push(line);
+      i++;
+    }
   }
 
-  return {
-    headerCells,
-    dataRows,
-    rawTableText: tableLines.join('\n'),
-  };
+  if (currentMarkdown.length > 0) {
+    chunks.push({ type: 'markdown', lines: currentMarkdown });
+  }
+
+  const resultNodes: LexicalNode[] = [];
+
+  for (const chunk of chunks) {
+    if (chunk.type === 'table') {
+      const headerCells = splitTableRow(chunk.header);
+      const dataRows = chunk.rows.map((r) => splitTableRow(r));
+      const tableNode = $createTableFromRows(headerCells, dataRows);
+      resultNodes.push(tableNode);
+    } else {
+      const mdText = chunk.lines.join('\n');
+      if (!mdText.trim()) continue;
+      const tempContainer = $createParagraphNode();
+      const normalized = normalizeMarkdownMath(mdText);
+      $convertFromMarkdownString(normalized, transformers, tempContainer);
+      const children = tempContainer.getChildren();
+      resultNodes.push(...children);
+    }
+  }
+
+  return resultNodes;
 }
 
 export const TABLE_TRANSFORMER: ElementTransformer = {
@@ -262,12 +269,9 @@ export const TABLE_TRANSFORMER: ElementTransformer = {
     if (!$isTableNode(node)) return null;
     return exportTableToMarkdown(node);
   },
-  regExp: /^\|?.+\|.+\|?$/,
-  replace: (parentNode, children) => {
-    if (children && children.length > 0) {
-      parentNode.append(...children);
-    }
-  },
+  // Regex configured to avoid intercepting and swallowing markdown lines during $convertFromMarkdownString
+  regExp: /^a{1000}$/,
+  replace: () => {},
   type: 'element',
 };
 
@@ -281,7 +285,19 @@ export function TableMarkdownPlugin() {
         return;
       }
 
-      const headerText = pNode.getTextContent().trim();
+      const text = pNode.getTextContent();
+      if (text.includes('\n')) {
+        const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+        if (lines.length >= 2 && isTableRow(lines[0]) && isTableDelimiterRow(lines[1])) {
+          const headerCells = splitTableRow(lines[0]);
+          const dataRows = lines.slice(2).filter(isTableRow).map(splitTableRow);
+          const tableNode = $createTableFromRows(headerCells, dataRows);
+          pNode.replace(tableNode);
+          return;
+        }
+      }
+
+      const headerText = text.trim();
       if (!isTableRow(headerText) || isTableDelimiterRow(headerText)) {
         return;
       }
@@ -321,3 +337,4 @@ export function TableMarkdownPlugin() {
 
   return null;
 }
+  

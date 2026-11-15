@@ -33,7 +33,6 @@ import { ListPlugin } from '@lexical/react/LexicalListPlugin';
 import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin';
 import {
   TRANSFORMERS,
-  $convertFromMarkdownString,
   $convertToMarkdownString,
 } from '@lexical/markdown';
 import {
@@ -41,12 +40,14 @@ import {
   $getSelection,
   $isRangeSelection,
   $createTextNode,
+  $getRoot,
+  $createParagraphNode,
   TextNode,
 } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { HeadingNode, QuoteNode, $createHeadingNode, $createQuoteNode } from '@lexical/rich-text';
 import { $setBlocksType } from '@lexical/selection';
-import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
+import { TableNode, TableCellNode, TableRowNode, $isTableNode } from '@lexical/table';
 import { ListItemNode, ListNode, INSERT_UNORDERED_LIST_COMMAND, INSERT_ORDERED_LIST_COMMAND } from '@lexical/list';
 import { CodeHighlightNode, CodeNode, registerCodeHighlighting, $isCodeNode, $createCodeNode } from '@lexical/code';
 import { AutoLinkNode, LinkNode } from '@lexical/link';
@@ -55,9 +56,9 @@ import { HorizontalRulePlugin } from '@lexical/react/LexicalHorizontalRulePlugin
 import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
 import { TabIndentationPlugin } from '@lexical/react/LexicalTabIndentationPlugin';
 import { HR_TRANSFORMER } from './plugins/HorizontalRuleTransformer';
-import { TABLE_TRANSFORMER, TableMarkdownPlugin } from './plugins/TableTransformer';
+import { TABLE_TRANSFORMER, TableMarkdownPlugin, parseMarkdownToLexicalNodes } from './plugins/TableTransformer';
 import { SlashCommandPlugin } from './plugins/SlashCommandPlugin';
-import { MathPlugin, MathNode, MATH_TRANSFORMER, normalizeMarkdownMath } from './plugins/MathPlugin';
+import { MathPlugin, MathNode, MATH_TRANSFORMER } from './plugins/MathPlugin';
 import { PageNode, $createPageNode } from './blocks/page/PageNode';
 import { PAGE_TRANSFORMER, PAGE_RE } from './blocks/page/PageTransformer';
 import { PasteMarkdownPlugin } from './plugins/PasteMarkdownPlugin';
@@ -175,6 +176,8 @@ function EditorBridge({
   const [savedStatus, setSavedStatus] = useState<string>('Ready');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [selectedLang, setSelectedLang] = useState<string>('javascript');
+  const [isRawView, setIsRawView] = useState<boolean>(false);
+  const [rawText, setRawText] = useState<string>('');
   const autosaveTimer = useRef<number | null>(null);
   const statusTimer = useRef<number | null>(null);
   const onSaveRef = useRef(onSave);
@@ -191,8 +194,18 @@ function EditorBridge({
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
       editor.update(() => {
-        const normalized = normalizeMarkdownMath(initialContent);
-        $convertFromMarkdownString(normalized, EDITOR_TRANSFORMERS);
+        const root = $getRoot();
+        root.clear();
+        const nodes = parseMarkdownToLexicalNodes(initialContent, EDITOR_TRANSFORMERS);
+        if (nodes.length > 0) {
+          root.append(...nodes);
+          const last = nodes[nodes.length - 1];
+          if ($isTableNode(last)) {
+            root.append($createParagraphNode());
+          }
+        } else {
+          root.append($createParagraphNode());
+        }
       });
     }
   }, [editor, initialContent]);
@@ -203,11 +216,13 @@ function EditorBridge({
     statusTimer.current = window.setTimeout(() => setSavedStatus('Ready'), 2000);
   }, []);
 
-  const handleManualSave = useCallback(async () => {
+  const handleManualSave = useCallback(async (contentOverride?: string) => {
     if (isSaving) return;
     setIsSaving(true);
     try {
-      const markdown = editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
+      const markdown = contentOverride !== undefined
+        ? contentOverride
+        : editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
       await Promise.resolve(onSaveRef.current(markdown));
       flashStatus('Saved!');
     } catch (err) {
@@ -223,16 +238,17 @@ function EditorBridge({
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        handleManualSave();
+        handleManualSave(isRawView ? rawText : undefined);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleManualSave]);
+  }, [handleManualSave, isRawView, rawText]);
 
   // Debounced real-time autosave
   useEffect(() => {
     const removeListener = editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
+      if (isRawView) return;
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
 
@@ -254,15 +270,19 @@ function EditorBridge({
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
       if (statusTimer.current) window.clearTimeout(statusTimer.current);
     };
-  }, [editor, flashStatus]);
+  }, [editor, flashStatus, isRawView]);
 
   // Flush pending edits when chapter is switched.
   useEffect(() => {
     return () => {
-      const markdown = editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
-      onSaveRef.current(markdown);
+      if (isRawView) {
+        onSaveRef.current(rawText);
+      } else {
+        const markdown = editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
+        onSaveRef.current(markdown);
+      }
     };
-  }, [editor]);
+  }, [editor, isRawView, rawText]);
 
   // Transform LinkNode or TextNode containing kepler-page:// into PageNode
   useEffect(() => {
@@ -354,10 +374,35 @@ function EditorBridge({
     });
   };
 
+  const toggleRawView = () => {
+    if (!isRawView) {
+      const markdown = editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
+      setRawText(markdown);
+      setIsRawView(true);
+    } else {
+      editor.update(() => {
+        const root = $getRoot();
+        root.clear();
+        const nodes = parseMarkdownToLexicalNodes(rawText, EDITOR_TRANSFORMERS);
+        if (nodes.length > 0) {
+          root.append(...nodes);
+          const last = nodes[nodes.length - 1];
+          if ($isTableNode(last)) {
+            root.append($createParagraphNode());
+          }
+        } else {
+          root.append($createParagraphNode());
+        }
+      });
+      setIsRawView(false);
+      handleManualSave(rawText);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#030712]">
       <div className="flex select-none flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-[#060913] px-4 py-2">
-        <div className="flex items-center gap-1">
+        <div className={`flex items-center gap-1 transition ${isRawView ? 'opacity-30 pointer-events-none' : ''}`}>
           <button
             type="button"
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold')}
@@ -428,6 +473,20 @@ function EditorBridge({
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleRawView}
+            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              isRawView
+                ? 'border-indigo-500 bg-indigo-600/30 text-indigo-200 shadow-sm'
+                : 'border-slate-800 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-white'
+            }`}
+            title="Toggle between Visual Editor and Raw Markdown source"
+          >
+            <Code2 size={13} className={isRawView ? 'text-indigo-400' : 'text-slate-400'} />
+            <span>{isRawView ? 'Visual Mode' : 'Raw Markdown'}</span>
+          </button>
+
           <span className="flex items-center gap-1.5 text-xs text-slate-400">
             {savedStatus.includes('Saved') ? (
               <CheckCircle size={13} className="text-emerald-400" />
@@ -437,7 +496,7 @@ function EditorBridge({
             {savedStatus}
           </span>
           <button
-            onClick={handleManualSave}
+            onClick={() => handleManualSave(isRawView ? rawText : undefined)}
             disabled={isSaving}
             className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-75"
           >
@@ -456,31 +515,55 @@ function EditorBridge({
         </div>
       </div>
 
-      {/* Editor Content Area */}
-      <div className="relative w-full flex-1 overflow-y-auto px-6 py-6 pb-[60vh]">
-        <RichTextPlugin
-          contentEditable={<ContentEditable className="editor-input min-h-[70vh] w-full pb-[40vh] outline-none" />}
-          placeholder={
-            <div className="pointer-events-none absolute text-sm text-slate-600">
-              Type '/' for commands, or $latex$ for formulas...
-            </div>
-          }
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-        <HistoryPlugin />
-        <AutoFocusPlugin />
-        <ListPlugin />
-        <LinkPlugin />
-        <HorizontalRulePlugin />
-        <TablePlugin />
-        <TableMarkdownPlugin />
-        <TabIndentationPlugin />
-        <MarkdownShortcutPlugin transformers={EDITOR_TRANSFORMERS} />
-        <SlashCommandPlugin defaultCodeLanguage={selectedLang} />
-        <MathPlugin />
-        <PasteMarkdownPlugin transformers={EDITOR_TRANSFORMERS} />
-        <RawInlineCodePlugin />
-      </div>
+      {/* Editor Content Area / Raw Source View */}
+      {isRawView ? (
+        <div className="flex flex-1 flex-col overflow-hidden p-4 bg-[#020617]">
+          <textarea
+            value={rawText}
+            onChange={(e) => {
+              const val = e.target.value;
+              setRawText(val);
+              if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
+              setSavedStatus('Saving...');
+              autosaveTimer.current = window.setTimeout(async () => {
+                try {
+                  await Promise.resolve(onSaveRef.current(val));
+                  flashStatus('Saved in real-time');
+                } catch (err) {
+                  flashStatus('Autosave error');
+                }
+              }, 350);
+            }}
+            placeholder="Raw Markdown source..."
+            className="h-full w-full resize-none rounded-xl border border-slate-800 bg-[#030712] p-4 font-mono text-xs leading-relaxed text-slate-200 outline-none focus:border-indigo-500"
+          />
+        </div>
+      ) : (
+        <div className="relative w-full flex-1 overflow-y-auto px-6 py-6 pb-[60vh]">
+          <RichTextPlugin
+            contentEditable={<ContentEditable className="editor-input min-h-[70vh] w-full pb-[40vh] outline-none" />}
+            placeholder={
+              <div className="pointer-events-none absolute text-sm text-slate-600">
+                Type '/' for commands, or $latex$ for formulas...
+              </div>
+            }
+            ErrorBoundary={LexicalErrorBoundary}
+          />
+          <HistoryPlugin />
+          <AutoFocusPlugin />
+          <ListPlugin />
+          <LinkPlugin />
+          <HorizontalRulePlugin />
+          <TablePlugin />
+          <TableMarkdownPlugin />
+          <TabIndentationPlugin />
+          <MarkdownShortcutPlugin transformers={EDITOR_TRANSFORMERS} />
+          <SlashCommandPlugin defaultCodeLanguage={selectedLang} />
+          <MathPlugin />
+          <PasteMarkdownPlugin transformers={EDITOR_TRANSFORMERS} />
+          <RawInlineCodePlugin />
+        </div>
+      )}
     </div>
   );
 }
@@ -516,3 +599,4 @@ export function LexicalMarkdownEditor({ initialContent, onSave, chapterTitle }: 
     </div>
   );
 }
+  
