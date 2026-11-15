@@ -27,8 +27,16 @@ import {
   Calculator,
   Sigma,
   FileText,
+  Table as TableIcon,
 } from 'lucide-react';
 import { $createMathNode } from './MathPlugin';
+import {
+  $createTableNode,
+  $createTableRowNode,
+  $createTableCellNode,
+  TableCellHeaderStates,
+} from '@lexical/table';
+import { $createTextNode } from 'lexical';
 
 interface CommandItem {
   id: string;
@@ -342,6 +350,43 @@ export function SlashCommandPlugin({ defaultCodeLanguage = 'javascript' }: { def
           const selection = $getSelection();
           if ($isRangeSelection(selection)) {
             selection.insertNodes([$createHorizontalRuleNode()]);
+          }
+        },
+      },
+      {
+        id: 'table',
+        label: 'Table',
+        description: 'Insert a 3x3 table',
+        keywords: 'table grid columns rows data',
+        icon: <TableIcon size={15} />,
+        action: () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            const tableNode = $createTableNode();
+            const headers = ['Header 1', 'Header 2', 'Header 3'];
+            const headerRow = $createTableRowNode();
+            for (const h of headers) {
+              const cell = $createTableCellNode(TableCellHeaderStates.ROW);
+              const p = $createParagraphNode();
+              p.append($createTextNode(h));
+              cell.append(p);
+              headerRow.append(cell);
+            }
+            tableNode.append(headerRow);
+
+            for (let r = 1; r <= 2; r++) {
+              const row = $createTableRowNode();
+              for (let c = 1; c <= 3; c++) {
+                const cell = $createTableCellNode(TableCellHeaderStates.NO_STATUS);
+                const p = $createParagraphNode();
+                p.append($createTextNode(`Cell ${r},${c}`));
+                cell.append(p);
+                row.append(cell);
+              }
+              tableNode.append(row);
+            }
+
+            selection.insertNodes([tableNode, $createParagraphNode()]);
           }
         },
       },

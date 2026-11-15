@@ -1,12 +1,15 @@
 import { useEffect } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { PASTE_COMMAND, COMMAND_PRIORITY_HIGH, $getSelection, $isRangeSelection } from 'lexical';
+import {
+  PASTE_COMMAND,
+  COMMAND_PRIORITY_HIGH,
+  $getSelection,
+  $isRangeSelection,
+  $createParagraphNode,
+} from 'lexical';
 import { $convertFromMarkdownString } from '@lexical/markdown';
+import { extractMarkdownTable, $createTableFromRows } from './TableTransformer';
 
-/**
- * Automatically converts pasted Markdown from clipboard into rich Lexical blocks
- * instantly without requiring navigation between chapters.
- */
 export function PasteMarkdownPlugin({ transformers }: { transformers: any[] }) {
   const [editor] = useLexicalComposerContext();
 
@@ -20,7 +23,19 @@ export function PasteMarkdownPlugin({ transformers }: { transformers: any[] }) {
         const text = clipboardData.getData('text/plain');
         if (!text) return false;
 
-        // If clipboard contains markdown syntax indicators (headers, lists, code fences, blockquotes, math)
+        const tableData = extractMarkdownTable(text);
+        if (tableData) {
+          event.preventDefault();
+          editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) {
+              const tableNode = $createTableFromRows(tableData.headerCells, tableData.dataRows);
+              selection.insertNodes([tableNode, $createParagraphNode()]);
+            }
+          });
+          return true;
+        }
+
         const hasMarkdownIndicators =
           /^#+\s/m.test(text) ||
           /^```/m.test(text) ||
@@ -35,8 +50,12 @@ export function PasteMarkdownPlugin({ transformers }: { transformers: any[] }) {
           editor.update(() => {
             const selection = $getSelection();
             if ($isRangeSelection(selection)) {
-              // Convert and replace selection with parsed elements
-              $convertFromMarkdownString(text, transformers);
+              const tempContainer = $createParagraphNode();
+              $convertFromMarkdownString(text, transformers, tempContainer);
+              const nodesToInsert = tempContainer.getChildren();
+              if (nodesToInsert.length > 0) {
+                selection.insertNodes(nodesToInsert);
+              }
             }
           });
           return true;

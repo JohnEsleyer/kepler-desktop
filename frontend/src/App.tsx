@@ -55,6 +55,8 @@ function AppContent() {
   }, []);
 
   const handleSwitchWorkspace = async (path: string) => {
+    // Instantly navigate back to the main screen (books list)
+    setActiveTabId(null);
     if (scanResult?.vaultPath === path) return;
     try {
       setLoading(true);
@@ -133,7 +135,10 @@ function AppContent() {
   const handleOpenFolder = async () => {
     try {
       const dir = await VaultAPI.chooseVaultFolder();
-      if (dir) await loadVault();
+      if (dir) {
+        setActiveTabId(null);
+        await loadVault();
+      }
     } catch (e) {
       showAlert('Error', `${e}`);
     }
@@ -287,7 +292,10 @@ function AppContent() {
         <WorkspaceSidebar
           workspaces={scanResult?.workspaces || []}
           activeWorkspace={scanResult?.activeWorkspace || ''}
-          onSelect={handleSwitchWorkspace}
+          onSelect={(path) => {
+            setActiveTabId(null);
+            handleSwitchWorkspace(path);
+          }}
           onCloseWorkspace={handleCloseWorkspace}
           onDeleteWorkspace={handleDeleteWorkspace}
           onOpenNewFolder={handleOpenFolder}

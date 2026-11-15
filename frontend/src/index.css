@@ -150,6 +150,153 @@ body {
   font-size: 0.9em;
 }
 
+/* Lexical Markdown Table styling */
+.editor-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.25rem 0;
+  border-spacing: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.editor-table-row:nth-child(even) { background-color: rgba(15, 23, 42, 0.4); }
+.editor-table-row:nth-child(odd) { background-color: rgba(7, 11, 20, 0.6); }
+.editor-table-row:hover { background-color: rgba(99, 102, 241, 0.06); }
+.editor-table-cell {
+  border: 1px solid #1e293b;
+  padding: 8px 12px;
+  min-width: 75px;
+  vertical-align: top;
+  color: #cbd5e1;
+  outline: none;
+}
+.editor-table-cell-header {
+  border: 1px solid #1e293b;
+  background-color: rgba(15, 23, 42, 0.95);
+  padding: 9px 12px;
+  font-weight: 600;
+  text-align: left;
+  color: #f1f5f9;
+  border-bottom: 2px solid #334155;
+}
+.editor-input table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.25rem 0;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13.5px;
+}
+.editor-input th {
+  border: 1px solid #1e293b;
+  background-color: rgba(15, 23, 42, 0.95);
+  padding: 9px 12px;
+  font-weight: 600;
+  text-align: left;
+  color: #f1f5f9;
+  border-bottom: 2px solid #334155;
+}
+.editor-input td {
+  border: 1px solid #1e293b;
+  padding: 8px 12px;
+  color: #cbd5e1;
+}
+.editor-input tr:nth-child(even) td { background-color: rgba(15, 23, 42, 0.4); }
+.editor-input tr:nth-child(odd) td { background-color: rgba(7, 11, 20, 0.6); }
+.editor-input tr:hover td { background-color: rgba(99, 102, 241, 0.06); }
+.editor-input td p, .editor-input th p { margin: 0; }
+
+/* Lexical Markdown Table styling */
+.editor-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.25rem 0;
+  border-spacing: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.editor-table-row:nth-child(even) {
+  background-color: rgba(15, 23, 42, 0.4);
+}
+
+.editor-table-row:nth-child(odd) {
+  background-color: rgba(7, 11, 20, 0.6);
+}
+
+.editor-table-row:hover {
+  background-color: rgba(99, 102, 241, 0.06);
+}
+
+.editor-table-cell {
+  border: 1px solid #1e293b;
+  padding: 8px 12px;
+  min-width: 75px;
+  vertical-align: top;
+  color: #cbd5e1;
+  outline: none;
+}
+
+.editor-table-cell-header {
+  border: 1px solid #1e293b;
+  background-color: rgba(15, 23, 42, 0.95);
+  padding: 9px 12px;
+  font-weight: 600;
+  text-align: left;
+  color: #f1f5f9;
+  border-bottom: 2px solid #334155;
+}
+
+.editor-input table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.25rem 0;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13.5px;
+}
+
+.editor-input th {
+  border: 1px solid #1e293b;
+  background-color: rgba(15, 23, 42, 0.95);
+  padding: 9px 12px;
+  font-weight: 600;
+  text-align: left;
+  color: #f1f5f9;
+  border-bottom: 2px solid #334155;
+}
+
+.editor-input td {
+  border: 1px solid #1e293b;
+  padding: 8px 12px;
+  color: #cbd5e1;
+}
+
+.editor-input tr:nth-child(even) td {
+  background-color: rgba(15, 23, 42, 0.4);
+}
+
+.editor-input tr:nth-child(odd) td {
+  background-color: rgba(7, 11, 20, 0.6);
+}
+
+.editor-input tr:hover td {
+  background-color: rgba(99, 102, 241, 0.06);
+}
+
+.editor-input td p,
+.editor-input th p {
+  margin: 0;
+}
+
 /* Inline & Block math decorator */
 .math-node {
   display: inline-block;

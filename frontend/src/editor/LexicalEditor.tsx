@@ -52,8 +52,10 @@ import { CodeHighlightNode, CodeNode, registerCodeHighlighting, $isCodeNode, $cr
 import { AutoLinkNode, LinkNode } from '@lexical/link';
 import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 import { HorizontalRulePlugin } from '@lexical/react/LexicalHorizontalRulePlugin';
+import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
 import { TabIndentationPlugin } from '@lexical/react/LexicalTabIndentationPlugin';
 import { HR_TRANSFORMER } from './plugins/HorizontalRuleTransformer';
+import { TABLE_TRANSFORMER, TableMarkdownPlugin } from './plugins/TableTransformer';
 import { SlashCommandPlugin } from './plugins/SlashCommandPlugin';
 import { MathPlugin, MathNode, MATH_TRANSFORMER, normalizeMarkdownMath } from './plugins/MathPlugin';
 import { PageNode, $createPageNode } from './blocks/page/PageNode';
@@ -94,8 +96,7 @@ const CODE_LANGUAGES = [
   { label: 'Markdown', value: 'markdown' },
 ];
 
-// PAGE_TRANSFORMER must precede TRANSFORMERS so standard LINK_TRANSFORMER does not hijack kepler-page://
-const EDITOR_TRANSFORMERS = [PAGE_TRANSFORMER, HR_TRANSFORMER, MATH_TRANSFORMER, ...TRANSFORMERS];
+const EDITOR_TRANSFORMERS = [TABLE_TRANSFORMER, PAGE_TRANSFORMER, HR_TRANSFORMER, MATH_TRANSFORMER, ...TRANSFORMERS];
 
 const editorTheme = {
   paragraph: 'editor-paragraph',
@@ -115,6 +116,10 @@ const editorTheme = {
   hr: 'editor-hr',
   quote: 'editor-quote',
   code: 'editor-code',
+  table: 'editor-table',
+  tableRow: 'editor-table-row',
+  tableCell: 'editor-table-cell',
+  tableCellHeader: 'editor-table-cell-header',
   codeHighlight: {
     atrule: 'token-atrule',
     attr: 'token-attr',
@@ -467,6 +472,8 @@ function EditorBridge({
         <ListPlugin />
         <LinkPlugin />
         <HorizontalRulePlugin />
+        <TablePlugin />
+        <TableMarkdownPlugin />
         <TabIndentationPlugin />
         <MarkdownShortcutPlugin transformers={EDITOR_TRANSFORMERS} />
         <SlashCommandPlugin defaultCodeLanguage={selectedLang} />
