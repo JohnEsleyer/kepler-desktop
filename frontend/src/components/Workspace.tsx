@@ -174,8 +174,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   };
 
-  const handleReorderChapters = async (reordered: Chapter[]) => {
+  const handleReorderChapters = async (reordered: Chapter[], newActiveIndex: number) => {
     try {
+      setActiveChapterIndex(newActiveIndex);
+      onChapterChange?.(newActiveIndex);
       const fileNames = reordered.map((c) => c.fileName);
       await VaultAPI.reorderChapters(book.path, fileNames);
       onRefresh();
