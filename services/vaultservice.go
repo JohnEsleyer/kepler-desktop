@@ -794,8 +794,14 @@ func (s *VaultService) CreateChapter(bookPath, title string) (string, error) {
 }
 
 func (s *VaultService) DeleteChapter(bookPath, fileName string) error {
-	dest := s.getChapterPath(bookPath, fileName)
-	return os.Remove(dest)
+	chFile := filepath.Join(bookPath, "chapters", fileName)
+	rootFile := filepath.Join(bookPath, fileName)
+	err1 := os.Remove(chFile)
+	err2 := os.Remove(rootFile)
+	if err1 == nil || err2 == nil {
+		return nil
+	}
+	return err1
 }
 
 func (s *VaultService) ReorderChapters(bookPath string, fileNames []string) error {
@@ -810,17 +816,26 @@ func (s *VaultService) ReorderChapters(bookPath string, fileNames []string) erro
 
 	for idx, oldName := range fileNames {
 		oldPath := s.getChapterPath(bookPath, oldName)
+		if _, err := os.Stat(oldPath); err != nil {
+			continue
+		}
+		// Strip any existing index prefix: e.g. "05_ch-1234_Title.md" -> "ch-1234_Title.md"
 		stripped := regexp.MustCompile(`^0*\d+_?`).ReplaceAllString(oldName, "")
 		newName := fmt.Sprintf("%02d_%s", idx+1, stripped)
 		newPath := filepath.Join(chaptersDir, newName)
 		plans = append(plans, renamePlan{oldPath: oldPath, newPath: newPath})
 	}
 
+	// Phase 1: Rename all files to unique temporary names
+	timestamp := time.Now().UnixNano()
 	for i, plan := range plans {
-		tempPath := plan.oldPath + fmt.Sprintf(".reorder_tmp_%d", i)
-		_ = os.Rename(plan.oldPath, tempPath)
-		plans[i].oldPath = tempPath
+		tempPath := plan.oldPath + fmt.Sprintf(".reorder_tmp_%d_%d", timestamp, i)
+		if err := os.Rename(plan.oldPath, tempPath); err == nil {
+			plans[i].oldPath = tempPath
+		}
 	}
+
+	// Phase 2: Move from temporary names to the final new paths
 	for _, plan := range plans {
 		_ = os.Rename(plan.oldPath, plan.newPath)
 	}

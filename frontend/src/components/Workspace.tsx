@@ -138,7 +138,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     onChapterChange?.(index);
   };
 
-  const handleSaveNotes = async (updatedMarkdown: string) => {
+  const handleSaveNotes = async (targetFileName: string, updatedMarkdown: string) => {
     if (activeSubpageId && activeSubpage) {
       try {
         activeSubpage.content = updatedMarkdown;
@@ -149,35 +149,52 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       return;
     }
 
-    if (!activeChapter) return;
+    if (!targetFileName) return;
     try {
+      const targetCh = book.chapters.find((c) => c.fileName === targetFileName);
       const derivedTitle = extractFirstLineTitle(
         updatedMarkdown,
-        activeChapter.fileName,
-        activeChapterIndex
+        targetFileName,
+        targetCh ? targetCh.position : activeChapterIndex
       );
 
-      activeChapter.content = updatedMarkdown;
-      if (derivedTitle && derivedTitle !== activeChapter.title) {
-        activeChapter.title = derivedTitle;
+      if (targetCh) {
+        targetCh.content = updatedMarkdown;
+        if (derivedTitle && derivedTitle !== targetCh.title) {
+          targetCh.title = derivedTitle;
+        }
       }
 
       setChapterTitles((prev) =>
-        prev[activeChapter.fileName] === derivedTitle
+        prev[targetFileName] === derivedTitle
           ? prev
-          : { ...prev, [activeChapter.fileName]: derivedTitle }
+          : { ...prev, [targetFileName]: derivedTitle }
       );
 
-      await VaultAPI.saveChapter(book.path, activeChapter.fileName, updatedMarkdown);
+      await VaultAPI.saveChapter(book.path, targetFileName, updatedMarkdown);
     } catch (err) {
       console.error('Failed to save chapter:', err);
     }
   };
 
-  const handleReorderChapters = async (reordered: Chapter[], newActiveIndex: number) => {
+  const handleReorderChapters = async (reordered: Chapter[]) => {
+    const currentActiveChapter = book.chapters[activeChapterIndex];
+    const currentActiveId = currentActiveChapter ? currentActiveChapter.id : null;
+
+    let newActiveIdx = activeChapterIndex;
+    if (currentActiveId) {
+      const foundIdx = reordered.findIndex((c) => c.id === currentActiveId);
+      if (foundIdx !== -1) {
+        newActiveIdx = foundIdx;
+      }
+    }
+
+    // Update in-memory state first to prevent stale closure writes
+    book.chapters = reordered;
+    setActiveChapterIndex(newActiveIdx);
+    onChapterChange?.(newActiveIdx);
+
     try {
-      setActiveChapterIndex(newActiveIndex);
-      onChapterChange?.(newActiveIndex);
       const fileNames = reordered.map((c) => c.fileName);
       await VaultAPI.reorderChapters(book.path, fileNames);
       onRefresh();
@@ -215,10 +232,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       isDanger: true,
     });
     if (!ok) return;
-    await VaultAPI.deleteChapter(book.path, fileName);
-    if (activeChapterIndex > 0 && activeChapterIndex >= book.chapters.length - 1) {
-      selectChapter(activeChapterIndex - 1);
+
+    // Shift active index away BEFORE deleting so no stale editor saves to this file
+    const deletedIdx = book.chapters.findIndex((c) => c.fileName === fileName);
+    if (deletedIdx !== -1) {
+      if (activeChapterIndex === deletedIdx) {
+        const nextIdx = Math.max(0, deletedIdx - 1);
+        setActiveChapterIndex(nextIdx);
+        onChapterChange?.(nextIdx);
+      } else if (activeChapterIndex > deletedIdx) {
+        const nextIdx = activeChapterIndex - 1;
+        setActiveChapterIndex(nextIdx);
+        onChapterChange?.(nextIdx);
+      }
     }
+
+    await VaultAPI.deleteChapter(book.path, fileName);
     onRefresh();
   };
 
@@ -453,14 +482,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               <LexicalMarkdownEditor
                 key={`subpage-${activeSubpage.id}`}
                 chapterTitle={activeSubpage.title}
+                fileName={activeSubpage.id}
                 initialContent={activeSubpage.content}
                 onSave={handleSaveNotes}
               />
             </div>
           ) : activeChapter ? (
             <LexicalMarkdownEditor
-              key={activeChapter.id}
-              chapterTitle={activeChapter.title}
+              key={activeChapter.fileName}
+              chapterTitle={activeChapterTitle}
+              fileName={activeChapter.fileName}
               initialContent={activeChapter.content}
               onSave={handleSaveNotes}
             />

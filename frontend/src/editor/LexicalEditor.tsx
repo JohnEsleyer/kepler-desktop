@@ -163,14 +163,16 @@ const editorTheme = {
 
 interface EditorProps {
   initialContent: string;
-  onSave: (markdown: string) => Promise<void> | void;
+  onSave: (targetFileName: string, markdown: string) => Promise<void> | void;
   chapterTitle: string;
+  fileName: string;
 }
 
 function EditorBridge({
   initialContent,
   onSave,
   chapterTitle,
+  fileName,
 }: EditorProps) {
   const [editor] = useLexicalComposerContext();
   const [savedStatus, setSavedStatus] = useState<string>('Ready');
@@ -182,6 +184,12 @@ function EditorBridge({
   const statusTimer = useRef<number | null>(null);
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+
+  const fileNameRef = useRef(fileName);
+  fileNameRef.current = fileName;
+
+  // Track if content has actually been edited by the user
+  const isDirtyRef = useRef(false);
 
   // Register Prism syntax highlighting for code blocks.
   useEffect(() => {
@@ -207,6 +215,7 @@ function EditorBridge({
           root.append($createParagraphNode());
         }
       });
+      isDirtyRef.current = false;
     }
   }, [editor, initialContent]);
 
@@ -223,7 +232,8 @@ function EditorBridge({
       const markdown = contentOverride !== undefined
         ? contentOverride
         : editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
-      await Promise.resolve(onSaveRef.current(markdown));
+      await Promise.resolve(onSaveRef.current(fileNameRef.current, markdown));
+      isDirtyRef.current = false;
       flashStatus('Saved!');
     } catch (err) {
       console.error('Failed to save:', err);
@@ -250,19 +260,21 @@ function EditorBridge({
     const removeListener = editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
       if (isRawView) return;
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
+      isDirtyRef.current = true;
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
 
       setSavedStatus('Saving...');
       autosaveTimer.current = window.setTimeout(async () => {
         try {
           const markdown = editorState.read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
-          await Promise.resolve(onSaveRef.current(markdown));
+          await Promise.resolve(onSaveRef.current(fileNameRef.current, markdown));
+          isDirtyRef.current = false;
           flashStatus('Saved in real-time');
         } catch (err) {
           console.error('Autosave failed:', err);
           flashStatus('Autosave error');
         }
-      }, 350);
+      }, 400);
     });
 
     return () => {
@@ -272,14 +284,17 @@ function EditorBridge({
     };
   }, [editor, flashStatus, isRawView]);
 
-  // Flush pending edits when chapter is switched.
+  // Flush on unmount ONLY if dirty, and strictly to fileNameRef.current
   useEffect(() => {
     return () => {
-      if (isRawView) {
-        onSaveRef.current(rawText);
-      } else {
-        const markdown = editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
-        onSaveRef.current(markdown);
+      if (isDirtyRef.current) {
+        isDirtyRef.current = false;
+        if (isRawView) {
+          onSaveRef.current(fileNameRef.current, rawText);
+        } else {
+          const markdown = editor.getEditorState().read(() => $convertToMarkdownString(EDITOR_TRANSFORMERS));
+          onSaveRef.current(fileNameRef.current, markdown);
+        }
       }
     };
   }, [editor, isRawView, rawText]);
@@ -523,16 +538,18 @@ function EditorBridge({
             onChange={(e) => {
               const val = e.target.value;
               setRawText(val);
+              isDirtyRef.current = true;
               if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
               setSavedStatus('Saving...');
               autosaveTimer.current = window.setTimeout(async () => {
                 try {
-                  await Promise.resolve(onSaveRef.current(val));
+                  await Promise.resolve(onSaveRef.current(fileNameRef.current, val));
+                  isDirtyRef.current = false;
                   flashStatus('Saved in real-time');
                 } catch (err) {
                   flashStatus('Autosave error');
                 }
-              }, 350);
+              }, 400);
             }}
             placeholder="Raw Markdown source..."
             className="h-full w-full resize-none rounded-xl border border-slate-800 bg-[#030712] p-4 font-mono text-xs leading-relaxed text-slate-200 outline-none focus:border-indigo-500"
@@ -568,7 +585,7 @@ function EditorBridge({
   );
 }
 
-export function LexicalMarkdownEditor({ initialContent, onSave, chapterTitle }: EditorProps) {
+export function LexicalMarkdownEditor({ initialContent, onSave, chapterTitle, fileName }: EditorProps) {
   const initialConfig = {
     namespace: 'KeplerEditor',
     theme: editorTheme,
@@ -594,7 +611,7 @@ export function LexicalMarkdownEditor({ initialContent, onSave, chapterTitle }: 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#030712]">
       <LexicalComposer initialConfig={initialConfig}>
-        <EditorBridge initialContent={initialContent} onSave={onSave} chapterTitle={chapterTitle} />
+        <EditorBridge initialContent={initialContent} onSave={onSave} chapterTitle={chapterTitle} fileName={fileName} />
       </LexicalComposer>
     </div>
   );

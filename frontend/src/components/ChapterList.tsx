@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Chapter } from '../types/vault';
-import { FileText, Trash2, GripVertical } from 'lucide-react';
+import { FileText, Trash2, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface ChapterListProps {
   chapters: Chapter[];
   activeIndex: number;
   onSelect: (index: number) => void;
   onDelete: (fileName: string) => void;
-  onReorder: (newChapters: Chapter[], newActiveIndex: number) => void;
+  onReorder: (newChapters: Chapter[]) => void;
 }
 
 export const ChapterList: React.FC<ChapterListProps> = ({
@@ -17,8 +17,8 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   onDelete,
   onReorder,
 }) => {
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [targetIdx, setTargetIdx] = useState<number | null>(null);
 
   if (chapters.length === 0) {
     return (
@@ -29,7 +29,7 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   }
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
-    setDraggedIndex(index);
+    setDraggedIdx(index);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(index));
   };
@@ -37,68 +37,69 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    if (draggedIndex === null || draggedIndex === index) return;
-    setDragOverIndex(index);
+    if (draggedIdx === null || draggedIdx === index) return;
+    setTargetIdx(index);
   };
 
   const handleDrop = (e: React.DragEvent, dropIndex: number) => {
     e.preventDefault();
-    if (draggedIndex === null || draggedIndex === dropIndex) {
-      setDraggedIndex(null);
-      setDragOverIndex(null);
+    if (draggedIdx === null || draggedIdx === dropIndex) {
+      setDraggedIdx(null);
+      setTargetIdx(null);
       return;
     }
 
     const reordered = [...chapters];
-    const [moved] = reordered.splice(draggedIndex, 1);
+    const [moved] = reordered.splice(draggedIdx, 1);
     reordered.splice(dropIndex, 0, moved);
 
-    // Keep the active chapter pointing at the same note after the move.
-    let nextActiveIndex = activeIndex;
-    if (activeIndex === draggedIndex) {
-      nextActiveIndex = dropIndex;
-    } else if (draggedIndex < activeIndex && dropIndex >= activeIndex) {
-      nextActiveIndex = activeIndex - 1;
-    } else if (draggedIndex > activeIndex && dropIndex <= activeIndex) {
-      nextActiveIndex = activeIndex + 1;
-    }
+    setDraggedIdx(null);
+    setTargetIdx(null);
+    onReorder(reordered);
+  };
 
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-    onReorder(reordered, nextActiveIndex);
+  const moveChapter = (e: React.MouseEvent, fromIdx: number, toIdx: number) => {
+    e.stopPropagation();
+    if (toIdx < 0 || toIdx >= chapters.length || fromIdx === toIdx) return;
+    const reordered = [...chapters];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    onReorder(reordered);
   };
 
   return (
     <div className="flex-1 overflow-y-auto p-2 space-y-1">
       {chapters.map((ch, idx) => {
-        const isDragging = draggedIndex === idx;
-        const isHovered = dragOverIndex === idx;
+        const isDragging = draggedIdx === idx;
+        const isTarget = targetIdx === idx;
         const isActive = activeIndex === idx;
 
         return (
           <div
             key={ch.id}
-            draggable
-            onDragStart={(e) => handleDragStart(e, idx)}
             onDragOver={(e) => handleDragOver(e, idx)}
-            onDragLeave={() => setDragOverIndex(null)}
             onDrop={(e) => handleDrop(e, idx)}
-            onDragEnd={() => {
-              setDraggedIndex(null);
-              setDragOverIndex(null);
-            }}
             onClick={() => onSelect(idx)}
             className={`group relative flex items-center justify-between rounded-xl px-2 py-2 text-xs font-medium cursor-pointer transition select-none ${
               isActive
                 ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30 shadow-sm'
                 : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
             } ${isDragging ? 'opacity-30 border-dashed border-indigo-500' : ''} ${
-              isHovered ? 'border-t-2 border-t-indigo-400 bg-indigo-950/40' : ''
+              isTarget ? 'border-t-2 border-t-indigo-400 bg-indigo-950/40' : ''
             }`}
           >
             <div className="flex items-center gap-1.5 truncate">
               <span
-                className="cursor-grab active:cursor-grabbing text-slate-500 hover:text-slate-300 transition"
+                draggable
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  handleDragStart(e, idx);
+                }}
+                onDragEnd={() => {
+                  setDraggedIdx(null);
+                  setTargetIdx(null);
+                }}
+                className="cursor-grab active:cursor-grabbing text-slate-500 hover:text-indigo-300 p-0.5 transition"
                 title="Drag up or down to reorder"
               >
                 <GripVertical size={14} />
@@ -114,16 +115,34 @@ export const ChapterList: React.FC<ChapterListProps> = ({
               <span className="truncate">{ch.title}</span>
             </div>
 
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(ch.fileName);
-              }}
-              className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 transition"
-              title="Delete chapter"
-            >
-              <Trash2 size={13} />
-            </button>
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+              <button
+                disabled={idx === 0}
+                onClick={(e) => moveChapter(e, idx, idx - 1)}
+                className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:text-slate-400 transition"
+                title="Move Up"
+              >
+                <ChevronUp size={13} />
+              </button>
+              <button
+                disabled={idx === chapters.length - 1}
+                onClick={(e) => moveChapter(e, idx, idx + 1)}
+                className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:hover:text-slate-400 transition"
+                title="Move Down"
+              >
+                <ChevronDown size={13} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(ch.fileName);
+                }}
+                className="p-1 text-slate-500 hover:text-rose-400 transition"
+                title="Delete chapter"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           </div>
         );
       })}
